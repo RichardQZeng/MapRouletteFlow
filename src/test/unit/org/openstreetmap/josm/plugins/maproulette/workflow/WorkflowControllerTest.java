@@ -24,7 +24,7 @@ import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
+import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.State;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 
@@ -270,8 +270,8 @@ class WorkflowControllerTest {
         return task;
     }
 
-    private static ModifiedTask draft(Task task) {
-        return new ModifiedTask(task, TaskStatus.FIXED, null, null, null, Map.of());
+    private static CompletionDraft draft(Task task) {
+        return new CompletionDraft(task, CompletionResult.FIXED, "", "", null, Map.of(), NextMode.RANDOM);
     }
 
     private static OsmDataLayer layer() {

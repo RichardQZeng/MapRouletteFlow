@@ -4,11 +4,11 @@ package org.openstreetmap.josm.plugins.maproulette.gui.task.current;
 import static org.openstreetmap.josm.gui.help.HelpUtil.ht;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
-import java.awt.Component;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.beans.PropertyChangeListener;
 import java.io.Serial;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,11 +18,10 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 
-import javax.swing.Action;
 import javax.swing.DefaultComboBoxModel;
+import javax.swing.ButtonModel;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
 import javax.swing.UIManager;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
@@ -38,11 +37,9 @@ import org.openstreetmap.josm.gui.SideButton;
 import org.openstreetmap.josm.gui.dialogs.ToggleDialog;
 import org.openstreetmap.josm.gui.widgets.HtmlPanel;
 import org.openstreetmap.josm.gui.widgets.VerticallyScrollablePanel;
-import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.data.TaskPrimitives;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.TagChangeTable;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
 import org.openstreetmap.josm.spi.preferences.Config;
@@ -50,6 +47,7 @@ import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Shortcut;
 import org.openstreetmap.josm.tools.Utils;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
+import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 
 /**
  * A panel for currently locked tasks
@@ -80,6 +78,7 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * The actions for the task
      */
     private final InnerAction[] actions;
+    private final PropertyChangeListener workflowListener = event -> refreshPanel();
     /**
      * The current task
      */
@@ -98,20 +97,18 @@ public final class CurrentTaskPanel extends ToggleDialog {
         final Supplier<HTMLDocument> docSupplier = () -> (HTMLDocument) this.instructionPane.getEditorPane()
                 .getDocument();
         final var newActions = new InnerAction[] {
-                new TaskStatusAction(TaskStatus.FALSE_POSITIVE, supplier, docSupplier),
-                new TaskStatusAction(TaskStatus.TOO_HARD, supplier, docSupplier),
-                new TaskStatusAction(TaskStatus.FIXED, supplier, docSupplier),
-                new TaskStatusAction(TaskStatus.ALREADY_FIXED, supplier, docSupplier),
-                new TaskStatusAction(TaskStatus.SKIPPED, supplier, docSupplier), new SelectOsmPrimitives(supplier) };
+                new TaskStatusAction(CompletionResult.FIXED, supplier, docSupplier),
+                new TaskStatusAction(CompletionResult.ALREADY_FIXED, supplier, docSupplier),
+                new TaskStatusAction(CompletionResult.NOT_AN_ISSUE, supplier, docSupplier),
+                new TaskStatusAction(CompletionResult.CANT_COMPLETE, supplier, docSupplier),
+                new TaskStatusAction(CompletionResult.SKIP, supplier, docSupplier), new SelectOsmPrimitives(supplier) };
 
         final var sideButtons = new ArrayList<SideButton>();
-        sideButtons.add(new SideButton(newActions[0])); // False positive
-        sideButtons.add(new SideButton(newActions[2])); // Fixed
-        sideButtons.add(new SideButton(newActions[4])); // Skipped
-        sideButtons.add(new SideButton(newActions[5])); // Additional actions
-        sideButtons.get(0).createArrow(l -> showPopupMenu(sideButtons.get(0), newActions[0], newActions[1]));
-        sideButtons.get(1).createArrow(l -> showPopupMenu(sideButtons.get(1), newActions[2], newActions[3]));
+        for (var action : newActions) {
+            sideButtons.add(new SideButton(action));
+        }
         this.actions = newActions;
+        WorkflowController.getInstance().addPropertyChangeListener(workflowListener);
         this.instructionPane.enableClickableHyperlinks();
         final var gbc = GBC.eol();
         this.panel.add(this.idLabel, gbc);
@@ -127,43 +124,12 @@ public final class CurrentTaskPanel extends ToggleDialog {
         return ht("/Dialog/CurrentMapRouletteTask");
     }
 
-    private static void showPopupMenu(Component parent, Object... menuItems) {
-        final var menu = new JPopupMenu();
-        final var box = parent.getBounds();
-        for (var item : menuItems) {
-            if (item instanceof Action action) {
-                menu.add(action);
-            } else {
-                throw new IllegalArgumentException("We don't currently support " + item.getClass());
-            }
-        }
-        menu.show(parent, 0, box.y + box.height);
-    }
-
     /**
      * Update the internal model
      *
      * @param task The task to show
      */
     public void refreshModel(final Task task) {
-        if (this.task != null) {
-            final var selectedResponses = getSelections(
-                    (HTMLDocument) this.instructionPane.getEditorPane().getDocument());
-            if (!selectedResponses.isEmpty()) {
-                final var modifiedTask = WorkflowController.getInstance().getCompletionDraft(this.task.id());
-                final ModifiedTask newModifiedTask;
-                if (modifiedTask == null) {
-                    newModifiedTask = new ModifiedTask(this.task, this.task.status(), null, null, null,
-                            selectedResponses);
-                } else {
-                    newModifiedTask = new ModifiedTask(modifiedTask.task(), modifiedTask.status(),
-                            modifiedTask.comment(), modifiedTask.tags(), modifiedTask.reviewRequested(),
-                            selectedResponses);
-                    WorkflowController.getInstance().removeCompletionDraft(modifiedTask);
-                }
-                WorkflowController.getInstance().addCompletionDraft(newModifiedTask);
-            }
-        }
         this.task = task;
         if ((task == null && this.isVisible()
                 && Config.getPref().getBoolean("maproulette.current_task_panel.autohide", false))
@@ -179,6 +145,12 @@ public final class CurrentTaskPanel extends ToggleDialog {
      */
     InnerAction[] actions() {
         return actions;
+    }
+
+    @Override
+    public void destroy() {
+        WorkflowController.getInstance().removePropertyChangeListener(workflowListener);
+        super.destroy();
     }
 
     private void refreshPanel() {
@@ -240,8 +212,8 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * @param task The task to get the selections for
      */
     private static void updateSelections(HTMLDocument doc, Task task) {
-        final var modifiedTask = WorkflowController.getInstance().getCompletionDraft(task.id());
-        if (modifiedTask != null && modifiedTask.completionResponses() != null) {
+        final var modifiedTask = WorkflowController.getInstance().snapshot().completionDraft();
+        if (modifiedTask != null && modifiedTask.task().id() == task.id()) {
             final var selectIterator = doc.getIterator(HTML.Tag.SELECT);
             final var selectListener = new SelectComboBoxListener(doc, task);
             while (selectIterator.isValid()) {
@@ -254,7 +226,7 @@ public final class CurrentTaskPanel extends ToggleDialog {
                         final var expectedOption = modifiedTask.completionResponses().get(name);
                         for (var i = 0; i < listModel.getSize(); i++) {
                             final var currentOption = (Option) listModel.getElementAt(i);
-                            if (Objects.equals(currentOption.getValue(), expectedOption.getValue())) {
+                            if (Objects.equals(currentOption.getValue(), expectedOption.toString())) {
                                 listModel.setSelectedItem(currentOption);
                                 break;
                             }
@@ -262,6 +234,17 @@ public final class CurrentTaskPanel extends ToggleDialog {
                     }
                 }
                 selectIterator.next();
+            }
+            final var inputIterator = doc.getIterator(HTML.Tag.INPUT);
+            while (inputIterator.isValid()) {
+                final var attribs = inputIterator.getAttributes();
+                final var name = attribs.getAttribute(HTML.Attribute.NAME);
+                final var model = attribs.getAttribute(StyleConstants.ModelAttribute);
+                if (name instanceof String key && model instanceof ButtonModel buttonModel
+                        && modifiedTask.completionResponses().get(key) instanceof Boolean selected) {
+                    buttonModel.setSelected(selected);
+                }
+                inputIterator.next();
             }
         }
     }
@@ -313,14 +296,7 @@ public final class CurrentTaskPanel extends ToggleDialog {
     }
 
     private void updateModifiedTask() {
-        final var originalModifiedTask = WorkflowController.getInstance().getCompletionDraft(this.task.id());
-        if (originalModifiedTask != null) {
-            final var modifiedTask = new ModifiedTask(originalModifiedTask.task(), originalModifiedTask.status(),
-                    originalModifiedTask.comment(), originalModifiedTask.tags(), originalModifiedTask.reviewRequested(),
-                    getSelections(doc));
-            WorkflowController.getInstance().removeCompletionDraft(originalModifiedTask);
-            WorkflowController.getInstance().addCompletionDraft(modifiedTask);
-        }
+        // Completion-dialog submission snapshots the current document; changing a select is not a workflow mutation.
     }
 }
 

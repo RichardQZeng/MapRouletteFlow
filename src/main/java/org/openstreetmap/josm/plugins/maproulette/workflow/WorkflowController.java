@@ -52,16 +52,17 @@ public final class WorkflowController {
      * @param activeChallenge selected challenge
      * @param reservedTask reserved candidate that has not entered editing
      * @param activeTask task being edited
-     * @param completionDraft pending completion details
+     * @param completionDraft pending focused-workflow completion details
      * @param nextMode next-task selection mode
      * @param editLayer layer containing task edits
+     * @param auxiliaryRetry post-commit operation that can be retried without resubmitting status
      * @param lockedTasks compatibility view of all tasks locked by the existing UI
      * @param completionDrafts compatibility view of all drafts created by the existing UI
      */
     public record Snapshot(State state, @Nullable Challenge activeChallenge, @Nullable Task reservedTask,
-                           @Nullable Task activeTask, @Nullable ModifiedTask completionDraft, NextMode nextMode,
-                           @Nullable OsmDataLayer editLayer, List<Task> lockedTasks,
-                           List<ModifiedTask> completionDrafts) {
+                           @Nullable Task activeTask, @Nullable CompletionDraft completionDraft, NextMode nextMode,
+                           @Nullable OsmDataLayer editLayer, @Nullable CompletionAuxiliaryRetry auxiliaryRetry,
+                           List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
     }
 
     private static final WorkflowController INSTANCE = new WorkflowController();
@@ -74,7 +75,8 @@ public final class WorkflowController {
     private Challenge activeChallenge;
     private Task reservedTask;
     private Task activeTask;
-    private ModifiedTask completionDraft;
+    private CompletionDraft completionDraft;
+    private CompletionAuxiliaryRetry auxiliaryRetry;
     private NextMode nextMode = NextMode.RANDOM;
     private OsmDataLayer editLayer;
     private Runnable reservationRefreshCleanup;
@@ -215,7 +217,7 @@ public final class WorkflowController {
     }
 
     /** Create the single completion draft for the active task. */
-    public void draftCompletion(ModifiedTask draft) {
+    public void draftCompletion(CompletionDraft draft) {
         Objects.requireNonNull(draft);
         mutate(() -> {
             requireState(State.ACTIVE_EDITING);
@@ -224,13 +226,12 @@ public final class WorkflowController {
                 throw new IllegalStateException("A completion draft is already pending");
             }
             completionDraft = draft;
-            completionDrafts.put(draft.task().id(), draft);
             transition(State.COMPLETION_DRAFT);
         });
     }
 
     /** Replace the details of the existing draft without replacing its task. */
-    public void updateCompletionDraft(ModifiedTask draft) {
+    public void updateCompletionDraft(CompletionDraft draft) {
         Objects.requireNonNull(draft);
         mutate(() -> {
             if (state != State.COMPLETION_DRAFT && state != State.WAITING_FOR_UPLOAD
@@ -239,7 +240,6 @@ public final class WorkflowController {
             }
             requireSameTask(completionDraft.task(), draft.task());
             completionDraft = draft;
-            completionDrafts.put(draft.task().id(), draft);
         });
     }
 
@@ -247,7 +247,6 @@ public final class WorkflowController {
     public void cancelCompletion() {
         mutate(() -> {
             requireState(State.COMPLETION_DRAFT);
-            completionDrafts.remove(completionDraft.task().id());
             completionDraft = null;
             transition(State.ACTIVE_EDITING);
         });
@@ -280,6 +279,18 @@ public final class WorkflowController {
             }
             cleanupListener();
             transition(State.SUBMITTING);
+        });
+    }
+
+    /** Record the status commit, including the backend's successful lock release. */
+    public void statusCommitted(@Nullable CompletionAuxiliaryRetry retry) {
+        mutate(() -> {
+            requireState(State.SUBMITTING);
+            if (activeTask == null || retry != null && retry.taskId() != activeTask.id()) {
+                throw new IllegalArgumentException("Auxiliary retry does not match the active task");
+            }
+            lockedTasks.remove(activeTask.id());
+            auxiliaryRetry = retry;
         });
     }
 
@@ -384,6 +395,7 @@ public final class WorkflowController {
             reservedTask = null;
             activeTask = null;
             completionDraft = null;
+            auxiliaryRetry = null;
             editLayer = null;
             recoveryState = null;
             state = State.DISCONNECTED;
@@ -443,6 +455,7 @@ public final class WorkflowController {
         }
         activeTask = null;
         completionDraft = null;
+        auxiliaryRetry = null;
         editLayer = null;
         recoveryState = null;
     }
@@ -523,7 +536,7 @@ public final class WorkflowController {
 
     private Snapshot snapshotOnEdt() {
         return new Snapshot(state, activeChallenge, reservedTask, activeTask, completionDraft, nextMode, editLayer,
-                List.copyOf(lockedTasks.values()), List.copyOf(completionDrafts.values()));
+                auxiliaryRetry, List.copyOf(lockedTasks.values()), List.copyOf(completionDrafts.values()));
     }
 
     private void mutate(Runnable mutation) {

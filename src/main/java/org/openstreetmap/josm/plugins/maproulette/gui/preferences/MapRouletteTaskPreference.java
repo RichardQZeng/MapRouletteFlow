@@ -73,6 +73,12 @@ public class MapRouletteTaskPreference implements SubPreferenceSetting {
         }
     }
 
+    /** Persist a next-task mode selected from the completion workflow. */
+    public static void setNextMode(NextMode mode) {
+        NEXT_MODE.put(mode.name());
+        WorkflowController.getInstance().setNextMode(mode);
+    }
+
     public static int getPointRadius() {
         return POINT_RADIUS.get();
     }
@@ -95,8 +101,7 @@ public class MapRouletteTaskPreference implements SubPreferenceSetting {
         if (!guiInitialized) {
             return false;
         }
-        NEXT_MODE.put(((NextMode) nextMode.getSelectedItem()).name());
-        WorkflowController.getInstance().setNextMode((NextMode) nextMode.getSelectedItem());
+        setNextMode((NextMode) nextMode.getSelectedItem());
         POINT_RADIUS.put((Integer) pointRadius.getValue());
         GEOMETRY_PADDING.put((Integer) geometryPadding.getValue());
         AUTO_CENTER.put(autoCenter.isSelected());

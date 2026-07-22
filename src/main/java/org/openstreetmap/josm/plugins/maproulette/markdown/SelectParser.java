@@ -20,7 +20,7 @@ import org.commonmark.renderer.html.HtmlRenderer;
 import org.commonmark.renderer.html.HtmlWriter;
 
 /**
- * A parser for [select "default value" name="Unique form name" values="csv delimited list"]
+ * A parser for [select "label" name="Unique form name" values="csv delimited list"]
  */
 public class SelectParser implements Parser.ParserExtension, HtmlRenderer.HtmlRendererExtension {
     /**
@@ -52,17 +52,17 @@ public class SelectParser implements Parser.ParserExtension, HtmlRenderer.HtmlRe
                     html.tag("select");
                 }
                 html.line();
-                html.tag("option", new TreeMap<>(Map.of("value", selectNode.values[0], "selected", "")));
-                html.text(selectNode.values[0]);
+                html.tag("option", new TreeMap<>(Map.of("value", "", "selected", "")));
                 html.tag("/option");
                 html.line();
-                for (var i = 1; i < selectNode.values.length; i++) {
-                    html.tag("option", Collections.singletonMap("value", selectNode.values[i]));
-                    html.text(selectNode.values[i]);
+                for (var value : selectNode.values) {
+                    html.tag("option", Collections.singletonMap("value", value));
+                    html.text(value);
                     html.tag("/option");
                     html.line();
                 }
                 html.tag("/select");
+                html.text(" " + selectNode.label);
                 html.line();
             }
         }
@@ -74,6 +74,8 @@ public class SelectParser implements Parser.ParserExtension, HtmlRenderer.HtmlRe
     private static class SelectNode extends CustomNode {
         /** The values for the select block */
         private final String[] values;
+        /** The label shown next to the select block. */
+        private final String label;
         /** The name for the select block (for form submission) */
         private final String name;
 
@@ -82,8 +84,9 @@ public class SelectParser implements Parser.ParserExtension, HtmlRenderer.HtmlRe
          * @param selectBlock The full select block
          */
         SelectNode(String selectBlock) {
-            final var startDefault = Characters.find('"', selectBlock, 0) + 1;
-            final var endDefault = Characters.find('"', selectBlock, startDefault);
+            final var startLabel = Characters.find('"', selectBlock, 0) + 1;
+            final var endLabel = Characters.find('"', selectBlock, startLabel);
+            this.label = selectBlock.substring(startLabel, endLabel);
             final var valueMatcher = Pattern.compile("values=\"([^\"]*)").matcher(selectBlock);
             final var nameMatcher = Pattern.compile("name=\"([^\"]*)").matcher(selectBlock);
             if (nameMatcher.find()) {
@@ -92,15 +95,7 @@ public class SelectParser implements Parser.ParserExtension, HtmlRenderer.HtmlRe
                 this.name = null;
             }
             if (valueMatcher.find()) {
-                final var defaultValue = selectBlock.substring(startDefault, endDefault);
-                final var tValues = valueMatcher.group(1).split(",", -1);
-                if (!defaultValue.equals(tValues[0])) {
-                    values = new String[tValues.length + 1];
-                    System.arraycopy(tValues, 0, values, 1, tValues.length);
-                    values[0] = defaultValue;
-                } else {
-                    values = tValues;
-                }
+                values = Pattern.compile(",\\s*").split(valueMatcher.group(1), -1);
             } else {
                 throw new IllegalArgumentException("A select object must have values");
             }

@@ -117,12 +117,6 @@ final class LockUnlockTaskAction extends JosmAction {
             try {
                 final var unlockedTask = TaskAPI.release(cluster.id());
                 if (task != null && task.id() == unlockedTask.id()) {
-                    final var modified = WorkflowController.getInstance().getCompletionDraft(task.id());
-                    if (modified != null) {
-                        TaskAPI.updateStatus(task.id(), modified.status(), modified.comment(), modified.tags(),
-                                modified.reviewRequested(), modified.completionResponses());
-                        WorkflowController.getInstance().removeCompletionDraft(modified);
-                    }
                     WorkflowController.getInstance().removeLockedTask(task);
                 }
                 final var newPoint = TaskAPI.get(cluster.id());

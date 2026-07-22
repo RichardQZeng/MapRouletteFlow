@@ -1,18 +1,11 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.plugins.maproulette.io.upload;
 
-import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
 import org.openstreetmap.josm.actions.upload.UploadHook;
-import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
-import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
-import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
-import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.ListenerList;
 
 /**
@@ -44,22 +37,6 @@ public class LateUploadHook implements UploadHook {
 
     @Override
     public void modifyChangesetTags(Map<String, String> tags) {
-        final var modifiedTasks = WorkflowController.getInstance().getCompletionDrafts();
-        final var updatedTasks = new HashMap<Long, Task>(modifiedTasks.size());
-        for (ModifiedTask entry : modifiedTasks) {
-            if (entry.status() != TaskStatus.CREATED) {
-                try {
-                    TaskAPI.updateStatus(entry.task().id(), entry.status(), entry.comment(), entry.tags(),
-                            entry.reviewRequested(), entry.completionResponses());
-                    updatedTasks.put(entry.task().id(), TaskAPI.release(entry.task().id()));
-                    WorkflowController.getInstance().removeLockedTask(entry.task());
-                    WorkflowController.getInstance().removeCompletionDraft(entry);
-                    TaskAPI.changeset(entry.task().id());
-                } catch (IOException e) {
-                    ExceptionDialogUtil.explainException(e);
-                }
-            }
-        }
-        MODIFIED_TASKS_UPLOADED.fireEvent(l -> l.accept(updatedTasks));
+        // Phase 6 will notify listeners only after a correlated successful upload.
     }
 }

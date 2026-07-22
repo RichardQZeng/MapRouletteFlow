@@ -4,7 +4,6 @@ package org.openstreetmap.josm.plugins.maproulette.gui;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -17,6 +16,7 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.ChallengeCache;
 import org.openstreetmap.josm.plugins.maproulette.markdown.SelectParser;
+import org.openstreetmap.josm.plugins.maproulette.markdown.CheckboxParser;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.tools.Utils;
 
@@ -89,10 +89,20 @@ public final class MRGuiHelper {
         }
         matcher.appendTail(builder);
 
-        // Instructions can be markdown, so we want to convert it to html
-        final var selectParser = Collections.singletonList(new SelectParser());
-        final var node = Parser.builder().extensions(selectParser).build().parse(builder.toString());
-        return "<html>" + HtmlRenderer.builder().extensions(selectParser).build().render(node) + "</html>";
+        return renderMarkdown(builder.toString(), true);
+    }
+
+    /** Render Markdown with the same renderer used by task instructions. */
+    public static String renderMarkdown(String markdown) {
+        return renderMarkdown(markdown, false);
+    }
+
+    private static String renderMarkdown(String markdown, boolean forms) {
+        final var formParsers = java.util.List.of(new SelectParser(), new CheckboxParser());
+        final var node = forms ? Parser.builder().extensions(formParsers).build().parse(markdown)
+                : Parser.builder().build().parse(markdown);
+        return "<html>" + (forms ? HtmlRenderer.builder().extensions(formParsers).build()
+                : HtmlRenderer.builder().build()).render(node) + "</html>";
     }
 
     /**

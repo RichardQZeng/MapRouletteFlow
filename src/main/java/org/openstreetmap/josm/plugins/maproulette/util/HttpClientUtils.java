@@ -3,6 +3,7 @@ package org.openstreetmap.josm.plugins.maproulette.util;
 
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
+import java.net.URLEncoder;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -98,9 +99,13 @@ public final class HttpClientUtils {
      * @param queryParameters The query parameters to send the server
      * @return The parameters to send the server
      */
-    private static String query(Map<String, String> queryParameters) {
-        return queryParameters.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
+    static String query(Map<String, String> queryParameters) {
+        return queryParameters.entrySet().stream().map(entry -> encode(entry.getKey()) + "=" + encode(entry.getValue()))
                 .collect(Collectors.joining("&", "?", ""));
+    }
+
+    private static String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     /**
@@ -146,6 +151,15 @@ public final class HttpClientUtils {
     public static HttpClient post(String url, Map<String, String> queryParameters) throws UnauthorizedException {
         var client = HttpClient.create(safeUrl(url, Collections.emptyMap()), "POST");
         client.setRequestBody(query(queryParameters).substring(1).getBytes(StandardCharsets.UTF_8));
+        sign(client);
+        return client;
+    }
+
+    /** Create a POST request with encoded query parameters and an explicit body. */
+    public static HttpClient post(String url, Map<String, String> queryParameters, byte[] body)
+            throws UnauthorizedException {
+        final var client = HttpClient.create(safeUrl(url, queryParameters), "POST");
+        client.setRequestBody(Objects.requireNonNullElse(body, new byte[0]));
         sign(client);
         return client;
     }
