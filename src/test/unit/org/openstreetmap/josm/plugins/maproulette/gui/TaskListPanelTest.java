@@ -45,6 +45,7 @@ class TaskListPanelTest {
             assertTrue(buttonTexts.contains("Random"));
             assertTrue(buttonTexts.contains("Nearby"));
             assertTrue(buttonTexts.contains("Start & Download"));
+            assertTrue(buttonTexts.contains("Retry"));
             assertTrue(buttonTexts.contains("Release"));
             assertFalse(buttonTexts.stream().anyMatch(text -> text != null && text.contains("10")));
             assertTrue(descendants(panel).noneMatch(JTable.class::isInstance));

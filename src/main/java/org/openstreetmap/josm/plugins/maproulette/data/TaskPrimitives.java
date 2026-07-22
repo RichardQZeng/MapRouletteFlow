@@ -9,10 +9,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.IPrimitive;
+import org.openstreetmap.josm.data.osm.OsmPrimitive;
 import org.openstreetmap.josm.data.osm.OsmPrimitiveType;
 import org.openstreetmap.josm.data.osm.PrimitiveId;
 import org.openstreetmap.josm.data.osm.SimplePrimitiveId;
+import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.plugins.maproulette.api.model.ChallengeExtra;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.ChallengeCache;
@@ -49,6 +52,13 @@ public final class TaskPrimitives {
         return getPrimitiveIdMap(task).keySet();
     }
 
+    /** Find the referenced primitives that are actually present in a downloaded data set. */
+    @Nonnull
+    public static Collection<OsmPrimitive> findPrimitives(@Nonnull DataSet dataSet,
+            @Nonnull Collection<? extends PrimitiveId> primitiveIds) {
+        return primitiveIds.stream().map(dataSet::getPrimitiveById).filter(java.util.Objects::nonNull).toList();
+    }
+
     /**
      * Get the primitive id map for a task
      *
@@ -65,7 +75,7 @@ public final class TaskPrimitives {
                     return getPrimitiveIdMap(task, property);
                 }
             } catch (IOException ioException) {
-                ExceptionDialogUtil.explainException(ioException);
+                GuiHelper.runInEDT(() -> ExceptionDialogUtil.explainException(ioException));
             }
             for (var defaultProperty : ChallengeExtra.DEFAULT_OSM_ID_PROPERTIES) {
                 final var primitives = getPrimitiveIdMap(task, defaultProperty);
@@ -108,10 +118,10 @@ public final class TaskPrimitives {
      * @return The parsed primitive id
      */
     @Nullable
-    private static PrimitiveId getPrimitiveId(@Nullable IPrimitive primitive, @Nullable String id) {
+    static PrimitiveId getPrimitiveId(@Nullable IPrimitive primitive, @Nullable String id) {
         if (id != null && primitive != null) {
             if (SimplePrimitiveId.ID_PATTERN.matcher(id).matches()) {
-                SimplePrimitiveId.fromString(id);
+                return SimplePrimitiveId.fromString(id);
             } else if (INTEGER_PATTERN.matcher(id).matches()) {
                 final var type = Optional.ofNullable(primitive.get("type"))
                         .or(() -> Optional.ofNullable(primitive.get("@type")))

@@ -33,13 +33,16 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.data.IgnoreList;
+import org.openstreetmap.josm.plugins.maproulette.data.TaskPrimitives;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.current.CurrentTaskPanel;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ChallengeInputParser;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ReservationLockRefresher;
+import org.openstreetmap.josm.plugins.maproulette.workflow.TaskDownloadService;
 import org.openstreetmap.josm.plugins.maproulette.workflow.TaskReservationService;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.Snapshot;
@@ -54,6 +57,7 @@ public final class TaskListPanel extends ToggleDialog {
 
     private final WorkflowController workflow = WorkflowController.getInstance();
     private final TaskReservationService reservations = new TaskReservationService(workflow);
+    private final TaskDownloadService taskDownloads = new TaskDownloadService(workflow);
     private final JosmTextField challengeInput = new JosmTextField();
     private final JButton loadChallenge = new JButton(tr("Load Challenge"));
     private final JLabel challengeName = new JLabel(tr("Challenge: None"));
@@ -65,6 +69,7 @@ public final class TaskListPanel extends ToggleDialog {
     private final JLabel taskDetails = new JLabel(" ");
     private final JLabel message = new JLabel(" ");
     private final StartDownloadAction startDownloadAction = new StartDownloadAction();
+    private final RetryDownloadAction retryDownloadAction = new RetryDownloadAction();
     private final ReleaseAction releaseAction = new ReleaseAction();
     private final PropertyChangeListener workflowListener = this::workflowChanged;
     private volatile boolean destroyed;
@@ -105,6 +110,7 @@ public final class TaskListPanel extends ToggleDialog {
         panel.add(message, GBC.eol().anchor(GBC.LINE_START).fill(GBC.HORIZONTAL));
         final var taskActions = new JPanel();
         taskActions.add(new JButton(startDownloadAction));
+        taskActions.add(new JButton(retryDownloadAction));
         taskActions.add(new JButton(releaseAction));
         panel.add(taskActions, GBC.eol().anchor(GBC.LINE_START));
 
@@ -279,6 +285,80 @@ public final class TaskListPanel extends ToggleDialog {
         });
     }
 
+    private void startTaskDownload() {
+        final var snapshot = workflow.snapshot();
+        final var task = snapshot.reservedTask();
+        if (task == null || snapshot.state() != State.RESERVED_PREVIEW
+                && snapshot.state() != State.RECOVERABLE_ERROR) {
+            return;
+        }
+        loading = true;
+        message.setText(snapshot.state() == State.RECOVERABLE_ERROR
+                ? tr("Retrying OSM download for task {0}...", task.id())
+                : tr("Starting task {0} and downloading OSM data...", task.id()));
+        updateEnabledState();
+        taskDownloads.start(task, MapRouletteTaskPreference.getGeometryPadding(),
+                MapRouletteTaskPreference.getPointRadius(), new TaskDownloadListener());
+    }
+
+    private void finishTaskDownload(TaskDownloadService.Result result) {
+        if (destroyed) {
+            return;
+        }
+        loading = false;
+        clearTaskPreview();
+        MainApplication.getLayerManager().setActiveLayer(result.layer());
+        final var primitives = TaskPrimitives.findPrimitives(result.layer().getDataSet(), result.primitiveIds());
+        result.layer().getDataSet().setSelected(primitives);
+        if (MapRouletteTaskPreference.isAutoCenter()) {
+            TaskPreviewBounds.forTask(result.task()).ifPresent(bounds -> {
+                if (bounds.isCollapsed()) {
+                    MainApplication.getMap().mapView.zoomTo(bounds.getMax());
+                } else {
+                    MainApplication.getMap().mapView.zoomTo(bounds);
+                }
+            });
+        }
+        showCurrentTask(result.task());
+        message.setText(tr("Task {0} is ready for editing. Selected {1} referenced OSM primitives.",
+                result.task().id(), primitives.size()));
+        updateFromSnapshot(workflow.snapshot());
+    }
+
+    private void finishTaskDownloadCancellation(Task task) {
+        if (destroyed) {
+            return;
+        }
+        loading = false;
+        startRefreshTimer(task.id());
+        message.setText(tr("OSM download was canceled. Task {0} remains reserved; use Retry or Release.", task.id()));
+        updateFromSnapshot(workflow.snapshot());
+    }
+
+    private void finishTaskDownloadFailure(Task task, Exception exception) {
+        if (destroyed) {
+            return;
+        }
+        loading = false;
+        startRefreshTimer(task.id());
+        message.setText(tr("OSM download failed. Task {0} remains reserved; use Retry or Release.", task.id()));
+        updateFromSnapshot(workflow.snapshot());
+        ExceptionDialogUtil.explainException(exception);
+    }
+
+    private static void showCurrentTask(Task task) {
+        final var map = MainApplication.getMap();
+        if (map == null) {
+            return;
+        }
+        var panel = map.getToggleDialog(CurrentTaskPanel.class);
+        if (panel == null) {
+            panel = new CurrentTaskPanel();
+            map.addToggleDialog(panel);
+        }
+        panel.refreshModel(task);
+    }
+
     private void showTaskOnMap(Task task) {
         final var layers = MainApplication.getLayerManager().getLayersOfType(MapRouletteClusteredPointLayer.class);
         final MapRouletteClusteredPointLayer layer;
@@ -359,6 +439,8 @@ public final class TaskListPanel extends ToggleDialog {
         randomMode.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE);
         nearbyMode.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE);
         startDownloadAction.setEnabled(!loading && snapshot.state() == State.RESERVED_PREVIEW);
+        retryDownloadAction.setEnabled(!loading && snapshot.state() == State.RECOVERABLE_ERROR
+                && snapshot.reservedTask() != null);
         releaseAction.setEnabled(!loading && (snapshot.state() == State.RESERVED_PREVIEW
                 || snapshot.state() == State.RECOVERABLE_ERROR && snapshot.reservedTask() != null));
     }
@@ -388,7 +470,38 @@ public final class TaskListPanel extends ToggleDialog {
 
         @Override
         public void actionPerformed(ActionEvent event) {
-            message.setText(tr("OSM download is not implemented until Phase 4; the reservation remains active."));
+            startTaskDownload();
+        }
+    }
+
+    private final class RetryDownloadAction extends AbstractAction {
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        RetryDownloadAction() {
+            super(tr("Retry"));
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent event) {
+            startTaskDownload();
+        }
+    }
+
+    private final class TaskDownloadListener implements TaskDownloadService.Listener {
+        @Override
+        public void completed(TaskDownloadService.Result result) {
+            finishTaskDownload(result);
+        }
+
+        @Override
+        public void canceled(Task reservedTask) {
+            finishTaskDownloadCancellation(reservedTask);
+        }
+
+        @Override
+        public void failed(Task reservedTask, Exception exception) {
+            finishTaskDownloadFailure(reservedTask, exception);
         }
     }
 

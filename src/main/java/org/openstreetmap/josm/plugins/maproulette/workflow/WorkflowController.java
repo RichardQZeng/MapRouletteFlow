@@ -329,6 +329,20 @@ public final class WorkflowController {
         });
     }
 
+    /** Retry a failed task download with a newly owned cancellation handle. */
+    public void retryDownload(@Nullable Runnable cancelOperation) {
+        mutate(() -> {
+            requireState(State.RECOVERABLE_ERROR);
+            if (recoveryState != State.STARTING_DOWNLOAD || reservedTask == null || activeTask != null) {
+                throw new IllegalStateException("The recoverable operation is not a task download");
+            }
+            cleanupReservationRefresh();
+            replaceOperationCleanup(cancelOperation);
+            recoveryState = null;
+            transition(State.STARTING_DOWNLOAD);
+        });
+    }
+
     /** Release a preview reservation, including one retained after a recoverable error. */
     public void releaseReservation() {
         mutate(() -> {
