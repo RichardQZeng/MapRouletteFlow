@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.LongPredicate;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -49,7 +50,6 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.ChallengeCache;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
 import org.openstreetmap.josm.plugins.maproulette.data.HiddenList;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.current.CurrentTaskPanel;
@@ -59,6 +59,7 @@ import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.ImageProvider;
 import org.openstreetmap.josm.tools.OpenBrowser;
 import org.openstreetmap.josm.tools.Shortcut;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 
 /**
  * A panel showing the task list for the downloaded bbox
@@ -79,6 +80,7 @@ public final class TaskListPanel extends ToggleDialog
      * The underlying model
      */
     private final TaskTableModel model;
+    private final LongPredicate hiddenUpdater = this::isHidden;
 
     /**
      * Create a new task list panel
@@ -109,7 +111,7 @@ public final class TaskListPanel extends ToggleDialog
                 return !TaskCache.isHidden(point);
             }
         };
-        HiddenList.addListUpdater(this::isHidden);
+        HiddenList.addListUpdater(hiddenUpdater);
         filterField.filter(expr -> {
             expr = expr.replace("+", "\\+");
             final ArrayList<RowFilter<? super TaskTableModel, ? super Integer>> andFilters = new ArrayList<>();
@@ -144,7 +146,7 @@ public final class TaskListPanel extends ToggleDialog
                     && this.table.getSelectedRow() >= 0) {
                 final var index = table.getRowSorter().convertRowIndexToModel(table.getSelectedRow());
                 final var taskId = ((TaskClusteredPoint) table.getModel().getValueAt(index, -1)).id();
-                task = ModifiedObjects.getLockedTask(taskId);
+                task = WorkflowController.getInstance().getLockedTask(taskId);
             } else {
                 task = null;
             }
@@ -205,6 +207,8 @@ public final class TaskListPanel extends ToggleDialog
     public void destroy() {
         super.destroy();
         MainApplication.getLayerManager().removeAndFireLayerChangeListener(this.model);
+        MainApplication.getLayerManager().removeAndFireLayerChangeListener(this);
+        HiddenList.removeListUpdater(hiddenUpdater);
     }
 
     /**
@@ -447,10 +451,10 @@ public final class TaskListPanel extends ToggleDialog
                 if (defaultColor != null) {
                     this.setBackground(defaultColor);
                 }
-                if (ModifiedObjects.getModifiedTask(value.id()) != null) {
+                if (WorkflowController.getInstance().getCompletionDraft(value.id()) != null) {
                     this.setBackground(COLOR_MODIFIED.get());
                 }
-                if (ModifiedObjects.getLockedTask(value.id()) != null) {
+                if (WorkflowController.getInstance().getLockedTask(value.id()) != null) {
                     this.setBackground(COLOR_LOCKED.get());
                 }
             }

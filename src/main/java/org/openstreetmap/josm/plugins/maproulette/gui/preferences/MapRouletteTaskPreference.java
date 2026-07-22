@@ -18,6 +18,7 @@ import org.openstreetmap.josm.data.preferences.StringProperty;
 import org.openstreetmap.josm.gui.preferences.PreferenceTabbedPane;
 import org.openstreetmap.josm.gui.preferences.SubPreferenceSetting;
 import org.openstreetmap.josm.gui.preferences.TabPreferenceSetting;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.GBC;
 
 /**
@@ -95,6 +96,7 @@ public class MapRouletteTaskPreference implements SubPreferenceSetting {
             return false;
         }
         NEXT_MODE.put(((NextMode) nextMode.getSelectedItem()).name());
+        WorkflowController.getInstance().setNextMode((NextMode) nextMode.getSelectedItem());
         POINT_RADIUS.put((Integer) pointRadius.getValue());
         GEOMETRY_PADDING.put((Integer) geometryPadding.getValue());
         AUTO_CENTER.put(autoCenter.isSelected());

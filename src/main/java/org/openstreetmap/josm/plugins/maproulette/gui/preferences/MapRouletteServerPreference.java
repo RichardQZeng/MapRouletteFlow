@@ -30,6 +30,7 @@ import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationMode;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.plugins.maproulette.util.OsmPreferenceUtils;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Utils;
 
@@ -228,6 +229,7 @@ public class MapRouletteServerPreference implements SubPreferenceSetting {
         if (testedAccount != null && newApiUrl.equals(testedBaseUrl) && mode == testedMode
                 && testedApiKey.equals(candidateKey)) {
             AuthenticationManager.setAuthenticated(newApiUrl, mode, candidateKey, testedAccount);
+            WorkflowController.getInstance().connect();
         } else {
             AuthenticationManager.clearActiveAuthentication();
         }

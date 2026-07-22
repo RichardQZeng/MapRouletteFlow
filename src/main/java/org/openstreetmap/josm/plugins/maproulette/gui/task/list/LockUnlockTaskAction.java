@@ -22,10 +22,10 @@ import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
 import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.ImageProvider;
 import org.openstreetmap.josm.tools.Shortcut;
 
@@ -82,7 +82,7 @@ final class LockUnlockTaskAction extends JosmAction {
                 final var i = table.getRowSorter().convertRowIndexToModel(index);
                 final var task = model.get(i);
                 final var lockedTask = TaskAPI.start(task.id());
-                ModifiedObjects.addLockedTask(lockedTask);
+                WorkflowController.getInstance().addLockedTask(lockedTask);
                 selectedTasks.add(lockedTask);
             } catch (IOException e) {
                 ExceptionDialogUtil.explainException(e);
@@ -113,17 +113,17 @@ final class LockUnlockTaskAction extends JosmAction {
         for (var index : selected) {
             final var i = this.table.getRowSorter().convertRowIndexToModel(index);
             final var cluster = data.get(i);
-            final var task = ModifiedObjects.getLockedTask(cluster.id());
+            final var task = WorkflowController.getInstance().getLockedTask(cluster.id());
             try {
                 final var unlockedTask = TaskAPI.release(cluster.id());
                 if (task != null && task.id() == unlockedTask.id()) {
-                    final var modified = ModifiedObjects.getModifiedTask(task.id());
+                    final var modified = WorkflowController.getInstance().getCompletionDraft(task.id());
                     if (modified != null) {
                         TaskAPI.updateStatus(task.id(), modified.status(), modified.comment(), modified.tags(),
                                 modified.reviewRequested(), modified.completionResponses());
-                        ModifiedObjects.removeModifiedTask(modified);
+                        WorkflowController.getInstance().removeCompletionDraft(modified);
                     }
-                    ModifiedObjects.removeLockedTask(task);
+                    WorkflowController.getInstance().removeLockedTask(task);
                 }
                 final var newPoint = TaskAPI.get(cluster.id());
                 MainApplication.getLayerManager().getLayersOfType(MapRouletteClusteredPointLayer.class)
@@ -161,7 +161,7 @@ final class LockUnlockTaskAction extends JosmAction {
             for (var i : this.table.getSelectedRows()) {
                 final var index = this.table.getRowSorter().convertRowIndexToModel(i);
                 final var point = ((TaskTableModel) this.table.getModel()).get(index);
-                if (ModifiedObjects.getLockedTask(point.id()) == null) {
+                if (WorkflowController.getInstance().getLockedTask(point.id()) == null) {
                     this.putValue(NAME, tr("Start Task"));
                     this.setTooltip(tr("Start MapRoulette Tasks"));
                     new ImageProvider("lock").getResource().attachImageIcon(this);

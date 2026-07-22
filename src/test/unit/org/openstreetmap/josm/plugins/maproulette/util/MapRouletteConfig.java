@@ -27,10 +27,10 @@ import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.platform.commons.util.ReflectionUtils;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.HTTP;
 import org.openstreetmap.josm.tools.JosmRuntimeException;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
@@ -68,8 +68,7 @@ public @interface MapRouletteConfig {
         @Override
         protected void onAfterEach(WireMockRuntimeInfo wireMockRuntimeInfo) {
             Config.getPref().put("osm-server.url", null);
-            ModifiedObjects.getModifiedTasks().forEach(ModifiedObjects::removeModifiedTask);
-            ModifiedObjects.getLockedTasks().forEach(ModifiedObjects::removeLockedTask);
+            WorkflowController.getInstance().shutdown();
             try {
                 final Field instance = org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.class
                         .getDeclaredField("instance");

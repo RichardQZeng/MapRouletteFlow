@@ -39,13 +39,13 @@ import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
 import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.data.ApplyCooperativeChange;
 import org.openstreetmap.josm.plugins.maproulette.data.ApplyOscChange;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
 import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Shortcut;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 
 /**
  * Update the status for a task
@@ -164,7 +164,7 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
             if (modifiedTask == null) {
                 return;
             }
-            ModifiedObjects.addModifiedTask(modifiedTask);
+            WorkflowController.getInstance().addCompletionDraft(modifiedTask);
             if (task.isCooperativeWorkOsmChange() && this.status == TaskStatus.FIXED) {
                 final var command = new ApplyCooperativeChange(
                         Objects.requireNonNull(task.cooperativeWorkAsOsmChange()))
@@ -189,7 +189,7 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
                     final var layer = new OsmDataLayer(osc.a, task.name(), null);
                     MainApplication.getLayerManager().addLayer(layer);
                 } else {
-                    ModifiedObjects.removeModifiedTask(modifiedTask);
+                    WorkflowController.getInstance().removeCompletionDraft(modifiedTask);
                     return;
                 }
             }
@@ -237,7 +237,7 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
             final var task = this.currentTaskProvider.get();
             if (task != null) {
                 // Disable buttons when the state has been modified
-                final var state = Optional.ofNullable(ModifiedObjects.getModifiedTask(task.id()))
+                final var state = Optional.ofNullable(WorkflowController.getInstance().getCompletionDraft(task.id()))
                         .map(ModifiedTask::status).orElse(task.status());
                 if (task.cooperativeWork() == null) {
                     this.putValue(NAME, this.status.description());

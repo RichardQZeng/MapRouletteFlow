@@ -32,10 +32,10 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.Point;
 import org.openstreetmap.josm.plugins.maproulette.api.model.PointReview;
 import org.openstreetmap.josm.plugins.maproulette.api.model.PublicUser;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
 import org.openstreetmap.josm.plugins.maproulette.util.MapRouletteConfig;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.testutils.annotations.Main;
@@ -53,6 +53,7 @@ class EarlyUploadHookTest {
 
     @BeforeEach
     void setUp() {
+        WorkflowController.getInstance().shutdown();
         this.hook = new EarlyUploadHook();
     }
 
@@ -87,7 +88,7 @@ class EarlyUploadHookTest {
     @Test
     void testManyClosedTasks() {
         for (int i = 100_000_000; i < 100_000_050; i++) {
-            ModifiedObjects.addModifiedTask(
+            WorkflowController.getInstance().addCompletionDraft(
                     new ModifiedTask(new Task(i, "", null, null, 15318, null, null, null, null, null, null, null, null,
                             null, 0, null, null, null, false, null, null), TaskStatus.FIXED, null, null, null, null));
         }

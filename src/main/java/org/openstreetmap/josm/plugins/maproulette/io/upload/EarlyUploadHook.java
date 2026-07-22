@@ -45,7 +45,6 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.ChallengeCache;
 import org.openstreetmap.josm.plugins.maproulette.data.TaskPrimitives;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.TagChangeTable;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
@@ -54,6 +53,7 @@ import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Logging;
 import org.openstreetmap.josm.tools.Utils;
 import org.openstreetmap.josm.tools.bugreport.BugReport;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 
 /**
  * An early upload hook for setting the changeset tags (for review by user)
@@ -103,7 +103,7 @@ public final class EarlyUploadHook implements UploadHook {
         final var exceptionList = new ArrayList<Exception>();
         final var possibleTasks = tasks.entrySet().stream().filter(t -> possiblyDone.containsKey(t.getKey()))
                 .map(Map.Entry::getValue).flatMap(Collection::stream).mapToLong(TaskClusteredPoint::id)
-                .filter(id -> ModifiedObjects.getModifiedTask(id) == null).mapToObj(id -> {
+                .filter(id -> WorkflowController.getInstance().getCompletionDraft(id) == null).mapToObj(id -> {
                     try {
                         return TaskAPI.get(id);
                     } catch (IOException e) {
@@ -126,7 +126,7 @@ public final class EarlyUploadHook implements UploadHook {
                                 JOptionPane.YES_OPTION));
                 if (Boolean.TRUE.equals(didFix)) {
                     final var doc = (HTMLDocument) ((JMultilineLabel) descriptivePanel.getComponent(1)).getDocument();
-                    ModifiedObjects.addModifiedTask(
+                    WorkflowController.getInstance().addCompletionDraft(
                             new ModifiedTask(task, TaskStatus.FIXED, null, null, null, getSelections(doc)));
                 }
             }
@@ -220,7 +220,7 @@ public final class EarlyUploadHook implements UploadHook {
         final var sourceComments = new TreeSet<String>();
         var tagBuilder = new StringBuilder();
         tagBuilders.add(tagBuilder);
-        for (ModifiedTask entry : ModifiedObjects.getModifiedTasks()) {
+        for (ModifiedTask entry : WorkflowController.getInstance().getCompletionDrafts()) {
             final var id = Long.toString(entry.task().id());
             if (tagBuilder.length() + id.length() + 1 >= Tagged.MAX_TAG_LENGTH) {
                 tagBuilder = new StringBuilder();

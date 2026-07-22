@@ -54,9 +54,9 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
 import org.openstreetmap.josm.plugins.maproulette.data.HiddenList;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
 import org.openstreetmap.josm.plugins.maproulette.io.upload.LateUploadHook;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.ColorHelper;
 import org.openstreetmap.josm.tools.Geometry;
 import org.openstreetmap.josm.tools.ImageProvider;
@@ -218,7 +218,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
         final var statusSymbol = new Symbol(SymbolShape.SQUARE, 25, null, fixedColor, fixedColor);
         final var disabledStatusSymbol = new Symbol(SymbolShape.SQUARE, 13, null, fixedColor, fixedColor);
         for (var point : this.pointBucket.search(box)) {
-            if (ModifiedObjects.getLockedTask(point.id()) == null && !TaskCache.isHidden(point)
+            if (WorkflowController.getInstance().getLockedTask(point.id()) == null && !TaskCache.isHidden(point)
                     && !HiddenList.isHidden(point.id())) {
                 final boolean isSelected = this.selected.contains(point) || listSelected.contains(point);
                 final var symbolColor = switch (point.status()) {
@@ -250,7 +250,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
 
         final var symbol = new Symbol(SymbolShape.CIRCLE, 10, null, mrColorOpacity, mrColorOpacity);
         final var stroke = new BasicStroke(8f);
-        for (var task : ModifiedObjects.getLockedTasks()) {
+        for (var task : WorkflowController.getInstance().getLockedTasks()) {
             for (INode n : task.geometries().searchNodes(box)) {
                 if (n.isTagged() || !n.isReferredByWays(1)) {
                     painter.drawNodeSymbol(n, symbol, mrColorOpacity, mrColorOpacity);
@@ -293,7 +293,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
         add.removeIf(TaskCache::isHidden);
         if (add.isEmpty()) {
             final var tNode = new Node(clickLocation);
-            for (var task : ModifiedObjects.getLockedTasks()) {
+            for (var task : WorkflowController.getInstance().getLockedTasks()) {
                 if (!TaskCache.isHidden(task)) {
                     final var minDistance = task.geometries().searchPrimitives(bbox).stream()
                             .mapToDouble(prim -> Geometry.getDistance(tNode, prim)).min().orElse(Double.NaN);

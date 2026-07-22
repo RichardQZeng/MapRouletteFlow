@@ -42,7 +42,6 @@ import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.data.TaskPrimitives;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
-import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.TagChangeTable;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
@@ -50,6 +49,7 @@ import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Shortcut;
 import org.openstreetmap.josm.tools.Utils;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 
 /**
  * A panel for currently locked tasks
@@ -150,7 +150,7 @@ public final class CurrentTaskPanel extends ToggleDialog {
             final var selectedResponses = getSelections(
                     (HTMLDocument) this.instructionPane.getEditorPane().getDocument());
             if (!selectedResponses.isEmpty()) {
-                final var modifiedTask = ModifiedObjects.getModifiedTask(this.task.id());
+                final var modifiedTask = WorkflowController.getInstance().getCompletionDraft(this.task.id());
                 final ModifiedTask newModifiedTask;
                 if (modifiedTask == null) {
                     newModifiedTask = new ModifiedTask(this.task, this.task.status(), null, null, null,
@@ -159,9 +159,9 @@ public final class CurrentTaskPanel extends ToggleDialog {
                     newModifiedTask = new ModifiedTask(modifiedTask.task(), modifiedTask.status(),
                             modifiedTask.comment(), modifiedTask.tags(), modifiedTask.reviewRequested(),
                             selectedResponses);
-                    ModifiedObjects.removeModifiedTask(modifiedTask);
+                    WorkflowController.getInstance().removeCompletionDraft(modifiedTask);
                 }
-                ModifiedObjects.addModifiedTask(newModifiedTask);
+                WorkflowController.getInstance().addCompletionDraft(newModifiedTask);
             }
         }
         this.task = task;
@@ -240,7 +240,7 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * @param task The task to get the selections for
      */
     private static void updateSelections(HTMLDocument doc, Task task) {
-        final var modifiedTask = ModifiedObjects.getModifiedTask(task.id());
+        final var modifiedTask = WorkflowController.getInstance().getCompletionDraft(task.id());
         if (modifiedTask != null && modifiedTask.completionResponses() != null) {
             final var selectIterator = doc.getIterator(HTML.Tag.SELECT);
             final var selectListener = new SelectComboBoxListener(doc, task);
@@ -313,13 +313,13 @@ public final class CurrentTaskPanel extends ToggleDialog {
     }
 
     private void updateModifiedTask() {
-        final var originalModifiedTask = ModifiedObjects.getModifiedTask(this.task.id());
+        final var originalModifiedTask = WorkflowController.getInstance().getCompletionDraft(this.task.id());
         if (originalModifiedTask != null) {
             final var modifiedTask = new ModifiedTask(originalModifiedTask.task(), originalModifiedTask.status(),
                     originalModifiedTask.comment(), originalModifiedTask.tags(), originalModifiedTask.reviewRequested(),
                     getSelections(doc));
-            ModifiedObjects.removeModifiedTask(originalModifiedTask);
-            ModifiedObjects.addModifiedTask(modifiedTask);
+            WorkflowController.getInstance().removeCompletionDraft(originalModifiedTask);
+            WorkflowController.getInstance().addCompletionDraft(modifiedTask);
         }
     }
 }
