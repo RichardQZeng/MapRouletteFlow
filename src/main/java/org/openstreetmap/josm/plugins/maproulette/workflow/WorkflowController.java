@@ -56,13 +56,15 @@ public final class WorkflowController {
      * @param nextMode next-task selection mode
      * @param editLayer layer containing task edits
      * @param auxiliaryRetry post-commit operation that can be retried without resubmitting status
+     * @param completionChangesetId correlated OSM changeset retained until Fixed completion finishes
      * @param lockedTasks compatibility view of all tasks locked by the existing UI
      * @param completionDrafts compatibility view of all drafts created by the existing UI
      */
     public record Snapshot(State state, @Nullable Challenge activeChallenge, @Nullable Task reservedTask,
                            @Nullable Task activeTask, @Nullable CompletionDraft completionDraft, NextMode nextMode,
-                           @Nullable OsmDataLayer editLayer, @Nullable CompletionAuxiliaryRetry auxiliaryRetry,
-                           List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
+                            @Nullable OsmDataLayer editLayer, @Nullable CompletionAuxiliaryRetry auxiliaryRetry,
+                            @Nullable Integer completionChangesetId,
+                            List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
     }
 
     private static final WorkflowController INSTANCE = new WorkflowController();
@@ -77,6 +79,7 @@ public final class WorkflowController {
     private Task activeTask;
     private CompletionDraft completionDraft;
     private CompletionAuxiliaryRetry auxiliaryRetry;
+    private Integer completionChangesetId;
     private NextMode nextMode = NextMode.RANDOM;
     private OsmDataLayer editLayer;
     private Runnable reservationRefreshCleanup;
@@ -294,6 +297,27 @@ public final class WorkflowController {
         });
     }
 
+    /** Retain the verified OSM changeset across status and auxiliary retries. */
+    public void setCompletionChangesetId(@Nullable Integer changesetId) {
+        mutate(() -> {
+            if (state != State.COMPLETION_DRAFT && state != State.WAITING_FOR_UPLOAD) {
+                throw unexpectedState(State.COMPLETION_DRAFT);
+            }
+            completionChangesetId = changesetId;
+        });
+    }
+
+    /** Advance the immutable post-status retry after one auxiliary operation succeeds. */
+    public void updateAuxiliaryRetry(@Nullable CompletionAuxiliaryRetry retry) {
+        mutate(() -> {
+            requireState(State.SUBMITTING);
+            if (activeTask == null || retry != null && retry.taskId() != activeTask.id()) {
+                throw new IllegalArgumentException("Auxiliary retry does not match the active task");
+            }
+            auxiliaryRetry = retry;
+        });
+    }
+
     /** Finish submission without reserving another candidate. */
     public void submissionSucceeded() {
         mutate(() -> {
@@ -396,6 +420,7 @@ public final class WorkflowController {
             activeTask = null;
             completionDraft = null;
             auxiliaryRetry = null;
+            completionChangesetId = null;
             editLayer = null;
             recoveryState = null;
             state = State.DISCONNECTED;
@@ -456,6 +481,7 @@ public final class WorkflowController {
         activeTask = null;
         completionDraft = null;
         auxiliaryRetry = null;
+        completionChangesetId = null;
         editLayer = null;
         recoveryState = null;
     }
@@ -536,7 +562,8 @@ public final class WorkflowController {
 
     private Snapshot snapshotOnEdt() {
         return new Snapshot(state, activeChallenge, reservedTask, activeTask, completionDraft, nextMode, editLayer,
-                auxiliaryRetry, List.copyOf(lockedTasks.values()), List.copyOf(completionDrafts.values()));
+                auxiliaryRetry, completionChangesetId, List.copyOf(lockedTasks.values()),
+                List.copyOf(completionDrafts.values()));
     }
 
     private void mutate(Runnable mutation) {

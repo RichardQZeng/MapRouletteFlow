@@ -71,6 +71,15 @@ class TaskCompletionAPITest {
     }
 
     @Test
+    void changesetAssociationUsesCheckedEndpoint() throws IOException {
+        wireMock().register(put(urlPathEqualTo("/api/v2/task/42/changeset")).willReturn(aResponse().withStatus(200)));
+
+        TaskCompletionAPI.associateChangeset(42, 77);
+
+        wireMock().verifyThat(putRequestedFor(urlPathEqualTo("/api/v2/task/42/changeset")));
+    }
+
+    @Test
     void unexpectedSuccessCodesAreRejected() {
         wireMock().register(put(urlPathEqualTo("/api/v2/task/42/2")).willReturn(aResponse().withStatus(200)));
         wireMock().register(post(urlPathEqualTo("/api/v2/task/42/comment")).willReturn(aResponse().withStatus(200)));

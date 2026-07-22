@@ -15,6 +15,7 @@ import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionAuxiliaryRe
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraft;
 
 import jakarta.json.Json;
+import jakarta.json.JsonObject;
 
 /** Checked HTTP operations for the MapRoulette web completion contract. */
 public final class TaskCompletionAPI {
@@ -46,6 +47,37 @@ public final class TaskCompletionAPI {
                 Map.of("actionId", Integer.toString(comment.actionId())), body);
         client.setHeader("Content-Type", "application/json");
         expect(client, 201, "task comment");
+    }
+
+    public static void associateChangeset(long taskId, int changesetId) throws IOException {
+        final var client = HttpClientUtils.put(getBaseUrl() + TASK + "/" + taskId + "/changeset", Map.of(),
+                new byte[0]);
+        expect(client, 200, "task changeset association");
+        // The current API infers the association and does not accept an ID. The caller retains changesetId so a
+        // failed matcher request can be retried without repeating Fixed status.
+    }
+
+    public static boolean hasTaskStatus(long taskId, int status) throws IOException {
+        return taskSummary(taskId).getInt("status") == status;
+    }
+
+    private static JsonObject taskSummary(long taskId) throws IOException {
+        final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + taskId, Map.of("summary", "true"));
+        try {
+            final var response = client.connect();
+            if (response.getResponseCode() == HTTP_UNAUTHORIZED) {
+                AuthenticationManager.clearCurrentCredential(getBaseUrl());
+                throw new UnauthorizedException("MapRoulette rejected the API key");
+            }
+            if (response.getResponseCode() != 200) {
+                throw new IOException("MapRoulette task lookup returned HTTP " + response.getResponseCode());
+            }
+            try (var reader = Json.createReader(response.getContent())) {
+                return reader.readObject();
+            }
+        } finally {
+            client.disconnect();
+        }
     }
 
     private static void expect(org.openstreetmap.josm.tools.HttpClient client, int expected, String operation)

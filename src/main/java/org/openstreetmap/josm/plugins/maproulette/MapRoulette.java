@@ -24,12 +24,15 @@ import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.gui.util.GuiHelper;
+import org.openstreetmap.josm.tools.Destroyable;
 
 /**
  * The POJO entry point
  */
-public class MapRoulette extends Plugin {
+public class MapRoulette extends Plugin implements Destroyable {
     private final WorkflowController workflow = WorkflowController.getInstance();
+    private final EarlyUploadHook earlyUploadHook = new EarlyUploadHook();
+    private final LateUploadHook lateUploadHook = new LateUploadHook();
 
     /**
      * Creates the plugin
@@ -39,8 +42,8 @@ public class MapRoulette extends Plugin {
     public MapRoulette(PluginInformation info) {
         super(info);
         this.getPreferenceSetting().ok();
-        UploadAction.registerUploadHook(new EarlyUploadHook());
-        UploadAction.registerUploadHook(new LateUploadHook(), true);
+        UploadAction.registerUploadHook(earlyUploadHook);
+        UploadAction.registerUploadHook(lateUploadHook, true);
         OSMDownloadSource.addDownloadType(new MapRouletteDownloadSource());
         MainApplication.getMenu().openLocation.addDownloadTaskClass(MapRouletteDownloadTask.class);
     }
@@ -81,5 +84,13 @@ public class MapRoulette extends Plugin {
                 GuiHelper.runInEDT(() -> errors.forEach(ExceptionDialogUtil::explainException));
             });
         }
+    }
+
+    @Override
+    public void destroy() {
+        UploadAction.unregisterUploadHook(earlyUploadHook);
+        UploadAction.unregisterUploadHook(lateUploadHook);
+        org.openstreetmap.josm.plugins.maproulette.io.upload.FixedUploadCoordinator.getInstance().cleanup();
+        cleanupWorkflow();
     }
 }

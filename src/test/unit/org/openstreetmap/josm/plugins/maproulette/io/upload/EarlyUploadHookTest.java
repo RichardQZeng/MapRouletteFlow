@@ -2,7 +2,6 @@
 package org.openstreetmap.josm.plugins.maproulette.io.upload;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
@@ -16,10 +15,7 @@ import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.ChallengeGeneral;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
-import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
 import org.openstreetmap.josm.plugins.maproulette.util.MapRouletteConfig;
-import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraft;
-import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 
 @MapRouletteConfig
@@ -32,31 +28,27 @@ class EarlyUploadHookTest {
     }
 
     @Test
-    void fixedDraftAddsMetadataWithoutOverwritingUserCommentOrSource() {
+    void fixedUploadMetadataMergesWithoutOverwritingUserValues() {
         enterActiveWorkflow();
-        workflow.draftCompletion(new CompletionDraft(workflow.snapshot().activeTask(), CompletionResult.FIXED, "", "",
-                null, Map.of(), NextMode.RANDOM));
-        final var tags = new HashMap<>(Map.of("comment", "user comment", "source", "survey"));
+        final var tags = new HashMap<>(
+                Map.of("comment", "user comment", "source", "survey", "maproulette:tasks", "99"));
 
-        new EarlyUploadHook().modifyChangesetTags(tags);
+        EarlyUploadHook.applyMetadata(tags, 100, workflow.snapshot());
 
         assertEquals("user comment; challenge comment", tags.get("comment"));
         assertEquals("survey; challenge source", tags.get("source"));
-        assertEquals("100", tags.get("maproulette:tasks"));
+        assertEquals("99;100", tags.get("maproulette:tasks"));
         assertTrue(tags.containsKey("maproulette:server"));
     }
 
     @Test
-    void nonFixedDraftCannotQueueUploadMetadataOrStatus() {
+    void existingTaskMetadataIsNotDuplicated() {
         enterActiveWorkflow();
-        workflow.draftCompletion(new CompletionDraft(workflow.snapshot().activeTask(), CompletionResult.SKIP, "", "",
-                null, Map.of(), NextMode.RANDOM));
-        final var tags = new HashMap<String, String>();
+        final var tags = new HashMap<>(Map.of("maproulette:tasks", "99;100"));
 
-        new EarlyUploadHook().modifyChangesetTags(tags);
+        EarlyUploadHook.applyMetadata(tags, 100, workflow.snapshot());
 
-        assertTrue(tags.isEmpty());
-        assertFalse(workflow.getLockedTasks().isEmpty());
+        assertEquals("99;100", tags.get("maproulette:tasks"));
     }
 
     private void enterActiveWorkflow() {

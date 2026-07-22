@@ -15,6 +15,7 @@ import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
+import org.openstreetmap.josm.plugins.maproulette.io.upload.FixedUploadCoordinator;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ApiTaskCompletionGateway;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionSubmissionController;
@@ -95,8 +96,10 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
         final var state = workflow.state();
         final var draft = workflow.snapshot().completionDraft();
         final var matchingDraft = draft != null && draft.result() == result
-                && (state == State.COMPLETION_DRAFT || state == State.RECOVERABLE_ERROR);
-        setEnabled(state == State.ACTIVE_EDITING && result != CompletionResult.FIXED || matchingDraft);
+                && (state == State.COMPLETION_DRAFT || state == State.RECOVERABLE_ERROR
+                        || state == State.WAITING_FOR_UPLOAD && result == CompletionResult.FIXED
+                                && FixedUploadCoordinator.getInstance().canRetry());
+        setEnabled(state == State.ACTIVE_EDITING || matchingDraft);
     }
 
     private static boolean isAuthenticated() {

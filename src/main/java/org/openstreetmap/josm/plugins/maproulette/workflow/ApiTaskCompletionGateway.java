@@ -16,4 +16,14 @@ public final class ApiTaskCompletionGateway implements TaskCompletionGateway {
     public void addComment(CompletionAuxiliaryRetry comment) throws IOException {
         TaskCompletionAPI.addComment(comment);
     }
+
+    @Override
+    public void associateChangeset(long taskId, int changesetId) throws IOException {
+        TaskCompletionAPI.associateChangeset(taskId, changesetId);
+    }
+
+    @Override
+    public boolean hasTaskStatus(long taskId, int status) throws IOException {
+        return TaskCompletionAPI.hasTaskStatus(taskId, status);
+    }
 }

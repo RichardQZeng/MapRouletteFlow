@@ -49,6 +49,7 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
+import org.openstreetmap.josm.plugins.maproulette.io.upload.FixedUploadCoordinator;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraft;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraftValidator;
@@ -177,9 +178,24 @@ final class CompletionDialog extends JDialog {
         MapRouletteTaskPreference.setNextMode(draft.nextMode());
         if (result == CompletionResult.FIXED) {
             submissions.preserveFixedDraft(draft);
-            JOptionPane.showMessageDialog(this,
-                    tr("Fixed completion is saved. Upload integration will be added in Phase 6."),
-                    tr("Fixed draft saved"), JOptionPane.INFORMATION_MESSAGE);
+            final var uploads = FixedUploadCoordinator.getInstance();
+            if (!uploads.hasPendingEdits()) {
+                final var choice = JOptionPane.showConfirmDialog(this,
+                        tr("No edits in the task layer require upload. Mark this task Fixed without a new changeset?"),
+                        tr("No edits to upload"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice == JOptionPane.YES_OPTION) {
+                    submitFixedWithoutUpload();
+                    return;
+                }
+                close(false);
+                return;
+            }
+            try {
+                uploads.start(draft);
+            } catch (RuntimeException exception) {
+                ExceptionDialogUtil.explainException(exception);
+                return;
+            }
             close(false);
             return;
         }
@@ -187,6 +203,24 @@ final class CompletionDialog extends JDialog {
         MainApplication.worker.execute(() -> {
             try {
                 submissions.submit(draft);
+                SwingUtilities.invokeLater(() -> close(true));
+            } catch (Exception exception) {
+                SwingUtilities.invokeLater(() -> {
+                    setBusy(false);
+                    ExceptionDialogUtil.explainException(exception);
+                });
+            }
+        });
+    }
+
+    private void submitFixedWithoutUpload() {
+        if (workflow.state() == WorkflowController.State.WAITING_FOR_UPLOAD) {
+            FixedUploadCoordinator.getInstance().cancel();
+        }
+        setBusy(true);
+        MainApplication.worker.execute(() -> {
+            try {
+                submissions.submitFixedWithoutUpload();
                 SwingUtilities.invokeLater(() -> close(true));
             } catch (Exception exception) {
                 SwingUtilities.invokeLater(() -> {

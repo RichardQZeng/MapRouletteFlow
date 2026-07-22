@@ -38,13 +38,55 @@ public final class CompletionSubmissionController {
             throw new IllegalStateException("Committed completion details cannot be changed during auxiliary retry");
         }
         prepareSubmission(draft);
+        submitPrepared(draft, null, false);
+    }
+
+    /** Submit a stored Fixed draft after a correlated successful upload. */
+    public void submitFixedAfterUpload(int changesetId) throws IOException {
+        final var draft = requireFixedDraft(State.WAITING_FOR_UPLOAD);
+        workflow.setCompletionChangesetId(changesetId);
+        workflow.beginSubmission();
+        submitPrepared(draft, changesetId, false);
+    }
+
+    /** Explicitly submit Fixed when the captured layer has no edits to upload. */
+    public void submitFixedWithoutUpload() throws IOException {
+        final var snapshot = workflow.snapshot();
+        if (snapshot.state() == State.RECOVERABLE_ERROR && snapshot.completionDraft() != null
+                && snapshot.completionDraft().result() == CompletionResult.FIXED
+                && snapshot.auxiliaryRetry() == null) {
+            workflow.retry();
+            submitPrepared(snapshot.completionDraft(), snapshot.completionChangesetId(), true);
+        } else {
+            final var draft = requireFixedDraft(State.COMPLETION_DRAFT);
+            workflow.setCompletionChangesetId(null);
+            workflow.beginSubmission();
+            submitPrepared(draft, null, false);
+        }
+    }
+
+    private void submitPrepared(CompletionDraft draft, Integer changesetId, boolean reconcileBeforeUpdate)
+            throws IOException {
         try {
-            gateway.updateStatus(draft);
-            final CompletionAuxiliaryRetry pendingComment = Utils.isStripEmpty(draft.comment()) ? null
-                    : new CompletionAuxiliaryRetry(draft.task().id(), draft.result().actionId(), draft.comment());
-            workflow.statusCommitted(pendingComment);
-            if (pendingComment != null) {
-                gateway.addComment(pendingComment);
+            var statusCommitted = false;
+            if (reconcileBeforeUpdate) {
+                statusCommitted = gateway.hasTaskStatus(draft.task().id(), draft.result().actionId());
+            }
+            if (!statusCommitted) {
+                try {
+                    gateway.updateStatus(draft);
+                } catch (IOException exception) {
+                    if (draft.result() != CompletionResult.FIXED
+                            || !gateway.hasTaskStatus(draft.task().id(), draft.result().actionId())) {
+                        throw exception;
+                    }
+                }
+            }
+            final var pending = new CompletionAuxiliaryRetry(draft.task().id(), draft.result().actionId(),
+                    draft.comment(), changesetId, changesetId != null, !Utils.isStripEmpty(draft.comment()));
+            workflow.statusCommitted(pending.isComplete() ? null : pending);
+            if (!pending.isComplete()) {
+                completeAuxiliary(pending);
             }
             workflow.submissionSucceeded();
         } catch (IOException | RuntimeException exception) {
@@ -61,12 +103,35 @@ public final class CompletionSubmissionController {
         }
         workflow.retry();
         try {
-            gateway.addComment(retry);
+            completeAuxiliary(retry);
             workflow.submissionSucceeded();
         } catch (IOException | RuntimeException exception) {
             workflow.failRecoverably();
             throw exception;
         }
+    }
+
+    private void completeAuxiliary(CompletionAuxiliaryRetry initial) throws IOException {
+        var pending = initial;
+        if (pending.changesetPending()) {
+            gateway.associateChangeset(pending.taskId(), pending.changesetId());
+            pending = pending.changesetCompleted();
+            workflow.updateAuxiliaryRetry(pending.isComplete() ? null : pending);
+        }
+        if (pending.commentPending()) {
+            gateway.addComment(pending);
+            pending = pending.commentCompleted();
+            workflow.updateAuxiliaryRetry(pending.isComplete() ? null : pending);
+        }
+    }
+
+    private CompletionDraft requireFixedDraft(State expectedState) {
+        final var snapshot = workflow.snapshot();
+        if (snapshot.state() != expectedState || snapshot.completionDraft() == null
+                || snapshot.completionDraft().result() != CompletionResult.FIXED) {
+            throw new IllegalStateException("A Fixed completion draft is not ready for submission");
+        }
+        return snapshot.completionDraft();
     }
 
     private void prepareSubmission(CompletionDraft draft) {

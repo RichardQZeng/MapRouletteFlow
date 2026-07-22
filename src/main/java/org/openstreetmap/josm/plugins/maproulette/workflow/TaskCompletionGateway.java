@@ -8,4 +8,8 @@ public interface TaskCompletionGateway {
     void updateStatus(CompletionDraft draft) throws IOException;
 
     void addComment(CompletionAuxiliaryRetry comment) throws IOException;
+
+    void associateChangeset(long taskId, int changesetId) throws IOException;
+
+    boolean hasTaskStatus(long taskId, int status) throws IOException;
 }

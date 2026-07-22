@@ -78,12 +78,19 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * The actions for the task
      */
     private final InnerAction[] actions;
-    private final PropertyChangeListener workflowListener = event -> refreshPanel();
     /**
      * The current task
      */
     private Task task;
-
+    private final PropertyChangeListener workflowListener = event -> {
+        final var snapshot = WorkflowController.getInstance().snapshot();
+        if (task != null && snapshot.activeTask() == null
+                && (snapshot.state() == WorkflowController.State.CHALLENGE_IDLE
+                        || snapshot.state() == WorkflowController.State.RESERVED_PREVIEW)) {
+            task = null;
+        }
+        refreshPanel();
+    };
     /**
      * Create a new task panel
      */

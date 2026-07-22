@@ -136,6 +136,96 @@ class CompletionSubmissionControllerTest {
         assertEquals(0, gateway.commentCalls);
     }
 
+    @Test
+    void fixedWithoutEditsSubmitsWithoutChangesetAssociation() throws IOException {
+        controller.preserveFixedDraft(fixedDraft(""));
+
+        controller.submitFixedWithoutUpload();
+
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(0, gateway.changesetCalls);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+    }
+
+    @Test
+    void correlatedFixedUploadAssociatesChangesetBeforeComment() throws IOException {
+        controller.preserveFixedDraft(fixedDraft("uploaded"));
+        workflow.waitForUpload(() -> { });
+
+        controller.submitFixedAfterUpload(77);
+
+        assertEquals(java.util.List.of("status", "changeset", "comment"), gateway.operations);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+    }
+
+    @Test
+    void changesetFailureRetriesOnlyRemainingAuxiliaryOperations() throws IOException {
+        controller.preserveFixedDraft(fixedDraft("uploaded"));
+        workflow.waitForUpload(() -> { });
+        gateway.failChangeset = true;
+
+        assertThrows(IOException.class, () -> controller.submitFixedAfterUpload(77));
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(1, gateway.changesetCalls);
+        assertEquals(0, gateway.commentCalls);
+        assertTrueNoTaskLock();
+
+        gateway.failChangeset = false;
+        controller.retryAuxiliary();
+
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(2, gateway.changesetCalls);
+        assertEquals(1, gateway.commentCalls);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+    }
+
+    @Test
+    void ambiguousFixedStatusResponseIsReconciledWithoutResubmission() throws IOException {
+        controller.preserveFixedDraft(fixedDraft(""));
+        workflow.waitForUpload(() -> { });
+        gateway.failStatus = true;
+        gateway.statusWasCommitted = true;
+
+        controller.submitFixedAfterUpload(77);
+
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(1, gateway.statusLookupCalls);
+        assertEquals(1, gateway.changesetCalls);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+    }
+
+    @Test
+    void fixedStatusFailureRetainsChangesetAndCanRetry() throws IOException {
+        controller.preserveFixedDraft(fixedDraft(""));
+        workflow.waitForUpload(() -> { });
+        gateway.failStatus = true;
+
+        assertThrows(IOException.class, () -> controller.submitFixedAfterUpload(77));
+        assertEquals(77, workflow.snapshot().completionChangesetId());
+
+        gateway.failStatus = false;
+        controller.submitFixedWithoutUpload();
+
+        assertEquals(2, gateway.statusCalls);
+        assertEquals(1, gateway.changesetCalls);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+    }
+
+    @Test
+    void retryDoesNotResubmitFixedUntilServerStatusCanBeReconciled() {
+        controller.preserveFixedDraft(fixedDraft(""));
+        workflow.waitForUpload(() -> { });
+        gateway.failStatus = true;
+        gateway.failStatusLookup = true;
+
+        assertThrows(IOException.class, () -> controller.submitFixedAfterUpload(77));
+        assertEquals(1, gateway.statusCalls);
+
+        assertThrows(IOException.class, controller::submitFixedWithoutUpload);
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(State.RECOVERABLE_ERROR, workflow.state());
+    }
+
     private void assertTrueNoTaskLock() {
         assertFalse(workflow.getLockedTasks().stream().anyMatch(locked -> locked.id() == task.id()));
     }
@@ -143,6 +233,10 @@ class CompletionSubmissionControllerTest {
     private CompletionDraft draft(String comment) {
         return new CompletionDraft(task, CompletionResult.CANT_COMPLETE, comment, "tag", null, Map.of(),
                 NextMode.RANDOM);
+    }
+
+    private CompletionDraft fixedDraft(String comment) {
+        return new CompletionDraft(task, CompletionResult.FIXED, comment, "tag", null, Map.of(), NextMode.RANDOM);
     }
 
     private Task enterActiveWorkflow() {
@@ -161,12 +255,19 @@ class CompletionSubmissionControllerTest {
     private static final class FakeGateway implements TaskCompletionGateway {
         private int statusCalls;
         private int commentCalls;
+        private int changesetCalls;
+        private int statusLookupCalls;
         private boolean failStatus;
         private boolean failComment;
+        private boolean failChangeset;
+        private boolean statusWasCommitted;
+        private boolean failStatusLookup;
+        private final java.util.List<String> operations = new ArrayList<>();
 
         @Override
         public void updateStatus(CompletionDraft draft) throws IOException {
             statusCalls++;
+            operations.add("status");
             assertEquals(State.SUBMITTING, WorkflowController.getInstance().state());
             assertNotNull(WorkflowController.getInstance().snapshot().completionDraft());
             if (failStatus) {
@@ -177,11 +278,32 @@ class CompletionSubmissionControllerTest {
         @Override
         public void addComment(CompletionAuxiliaryRetry comment) throws IOException {
             commentCalls++;
+            operations.add("comment");
             assertEquals(State.SUBMITTING, WorkflowController.getInstance().state());
             assertNotNull(WorkflowController.getInstance().snapshot().auxiliaryRetry());
             if (failComment) {
                 throw new IOException("comment failed");
             }
+        }
+
+        @Override
+        public void associateChangeset(long taskId, int changesetId) throws IOException {
+            changesetCalls++;
+            operations.add("changeset");
+            assertEquals(State.SUBMITTING, WorkflowController.getInstance().state());
+            assertTrue(WorkflowController.getInstance().snapshot().auxiliaryRetry().changesetPending());
+            if (failChangeset) {
+                throw new IOException("changeset failed");
+            }
+        }
+
+        @Override
+        public boolean hasTaskStatus(long taskId, int status) throws IOException {
+            statusLookupCalls++;
+            if (failStatusLookup) {
+                throw new IOException("status lookup failed");
+            }
+            return statusWasCommitted;
         }
     }
 }
