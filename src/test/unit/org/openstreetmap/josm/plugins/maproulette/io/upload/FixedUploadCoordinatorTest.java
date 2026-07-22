@@ -52,7 +52,11 @@ class FixedUploadCoordinatorTest {
     @BeforeEach
     void setUp() {
         workflow.shutdown();
-        coordinator = new FixedUploadCoordinator(workflow, new CompletionSubmissionController(workflow, gateway),
+        coordinator = new FixedUploadCoordinator(workflow,
+                new CompletionSubmissionController(workflow, gateway,
+                        draft -> new org.openstreetmap.josm.plugins.maproulette.workflow.TaskReservationService.Result(
+                                org.openstreetmap.josm.plugins.maproulette.workflow.TaskReservationService.Status.EMPTY,
+                                null)),
                 (layer, data, accepted, cancel) -> {
                     canceled = cancel;
                     return uploadCleanup::incrementAndGet;

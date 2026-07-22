@@ -3,17 +3,32 @@ package org.openstreetmap.josm.plugins.maproulette.workflow;
 
 import java.io.IOException;
 
+import org.openstreetmap.josm.plugins.maproulette.data.IgnoreList;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.State;
+import org.openstreetmap.josm.tools.Logging;
 import org.openstreetmap.josm.tools.Utils;
 
 /** Coordinates workflow transitions around the status commit and auxiliary comment operation. */
 public final class CompletionSubmissionController {
     private final WorkflowController workflow;
     private final TaskCompletionGateway gateway;
+    private final NextTaskReservation nextTaskReservation;
+
+    @FunctionalInterface
+    public interface NextTaskReservation {
+        TaskReservationService.Result reserve(CompletionDraft draft) throws IOException;
+    }
 
     public CompletionSubmissionController(WorkflowController workflow, TaskCompletionGateway gateway) {
+        this(workflow, gateway, draft -> new TaskReservationService(workflow).reserveAfterCompletion(
+                draft.task().parentId(), draft.nextMode(), draft.task().id(), IgnoreList::isTaskIgnored));
+    }
+
+    public CompletionSubmissionController(WorkflowController workflow, TaskCompletionGateway gateway,
+            NextTaskReservation nextTaskReservation) {
         this.workflow = java.util.Objects.requireNonNull(workflow);
         this.gateway = java.util.Objects.requireNonNull(gateway);
+        this.nextTaskReservation = java.util.Objects.requireNonNull(nextTaskReservation);
     }
 
     /** Closing confirmation before submission intentionally has no side effects. */
@@ -88,26 +103,40 @@ public final class CompletionSubmissionController {
             if (!pending.isComplete()) {
                 completeAuxiliary(pending);
             }
-            workflow.submissionSucceeded();
         } catch (IOException | RuntimeException exception) {
             workflow.failRecoverably();
             throw exception;
         }
+        reserveNext(draft);
     }
 
     /** Retry the immutable post-status operation without reopening editable completion fields. */
     public void retryAuxiliary() throws IOException {
-        final var retry = workflow.snapshot().auxiliaryRetry();
+        final var snapshot = workflow.snapshot();
+        final var retry = snapshot.auxiliaryRetry();
+        final var draft = snapshot.completionDraft();
         if (workflow.state() != State.RECOVERABLE_ERROR || retry == null) {
             throw new IllegalStateException("No committed completion operation is waiting to be retried");
         }
         workflow.retry();
         try {
             completeAuxiliary(retry);
-            workflow.submissionSucceeded();
         } catch (IOException | RuntimeException exception) {
             workflow.failRecoverably();
             throw exception;
+        }
+        reserveNext(draft);
+    }
+
+    private void reserveNext(CompletionDraft draft) {
+        try {
+            final var result = nextTaskReservation.reserve(draft);
+            if (result.status() != TaskReservationService.Status.RESERVED) {
+                workflow.submissionSucceeded(result.status());
+            }
+        } catch (IOException | RuntimeException exception) {
+            Logging.warn("Could not reserve the next MapRoulette task: {0}", exception.getMessage());
+            workflow.submissionSucceeded(TaskReservationService.Status.REQUEST_FAILED);
         }
     }
 

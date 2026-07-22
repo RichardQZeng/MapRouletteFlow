@@ -175,7 +175,7 @@ final class CompletionDialog extends JDialog {
                     JOptionPane.WARNING_MESSAGE);
             return;
         }
-        MapRouletteTaskPreference.setNextMode(draft.nextMode());
+        MapRouletteTaskPreference.setNextMode(draft.task().parentId(), draft.nextMode());
         if (result == CompletionResult.FIXED) {
             submissions.preserveFixedDraft(draft);
             final var uploads = FixedUploadCoordinator.getInstance();

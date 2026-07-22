@@ -57,13 +57,16 @@ public final class WorkflowController {
      * @param editLayer layer containing task edits
      * @param auxiliaryRetry post-commit operation that can be retried without resubmitting status
      * @param completionChangesetId correlated OSM changeset retained until Fixed completion finishes
+     * @param completedTaskId most recently completed task, retained for Nearby reservation
+     * @param reservationStatus latest candidate outcome for panel messaging
      * @param lockedTasks compatibility view of all tasks locked by the existing UI
      * @param completionDrafts compatibility view of all drafts created by the existing UI
      */
     public record Snapshot(State state, @Nullable Challenge activeChallenge, @Nullable Task reservedTask,
                            @Nullable Task activeTask, @Nullable CompletionDraft completionDraft, NextMode nextMode,
                             @Nullable OsmDataLayer editLayer, @Nullable CompletionAuxiliaryRetry auxiliaryRetry,
-                            @Nullable Integer completionChangesetId,
+                             @Nullable Integer completionChangesetId, @Nullable Long completedTaskId,
+                             @Nullable TaskReservationService.Status reservationStatus,
                             List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
     }
 
@@ -80,6 +83,8 @@ public final class WorkflowController {
     private CompletionDraft completionDraft;
     private CompletionAuxiliaryRetry auxiliaryRetry;
     private Integer completionChangesetId;
+    private Long completedTaskId;
+    private TaskReservationService.Status reservationStatus;
     private NextMode nextMode = NextMode.RANDOM;
     private OsmDataLayer editLayer;
     private Runnable reservationRefreshCleanup;
@@ -125,6 +130,8 @@ public final class WorkflowController {
             requireState(State.CHALLENGE_IDLE);
             requireNoPendingWork();
             activeChallenge = null;
+            completedTaskId = null;
+            reservationStatus = null;
             transition(State.DISCONNECTED);
         });
     }
@@ -140,6 +147,10 @@ public final class WorkflowController {
                 requireState(State.CHALLENGE_IDLE);
                 requireNoPendingWork();
             }
+            if (activeChallenge == null || activeChallenge.id() != challenge.id()) {
+                completedTaskId = null;
+                reservationStatus = null;
+            }
             activeChallenge = challenge;
         });
     }
@@ -150,6 +161,8 @@ public final class WorkflowController {
             requireState(State.CHALLENGE_IDLE);
             requireNoPendingWork();
             activeChallenge = null;
+            completedTaskId = null;
+            reservationStatus = null;
         });
     }
 
@@ -160,6 +173,14 @@ public final class WorkflowController {
      */
     public boolean canRequestCandidate() {
         return onEdt(() -> state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWork());
+    }
+
+    /** Whether a status-committed task can safely advance to one next reservation. */
+    public boolean canRequestNextCandidate(long challengeId, long completedId) {
+        return onEdt(() -> state == State.SUBMITTING && activeChallenge != null
+                && activeChallenge.id() == challengeId && activeTask != null && activeTask.id() == completedId
+                && completionDraft != null && completionDraft.task().id() == completedId && auxiliaryRetry == null
+                && lockedTasks.isEmpty() && completionDrafts.isEmpty());
     }
 
     /** Whether challenge metadata can safely replace the current challenge selection. */
@@ -178,6 +199,7 @@ public final class WorkflowController {
                 throw new IllegalArgumentException("Reserved task does not belong to the active challenge");
             }
             reservedTask = task;
+            reservationStatus = TaskReservationService.Status.RESERVED;
             lockedTasks.put(task.id(), task);
             transition(State.RESERVED_PREVIEW);
         });
@@ -327,6 +349,20 @@ public final class WorkflowController {
         });
     }
 
+    /** Finish completion when no automatic candidate could be reserved. */
+    public void submissionSucceeded(TaskReservationService.Status terminalStatus) {
+        Objects.requireNonNull(terminalStatus);
+        if (terminalStatus == TaskReservationService.Status.RESERVED) {
+            throw new IllegalArgumentException("A reserved result requires its task");
+        }
+        mutate(() -> {
+            requireState(State.SUBMITTING);
+            clearCompletedTask();
+            reservationStatus = terminalStatus;
+            transition(State.CHALLENGE_IDLE);
+        });
+    }
+
     /** Finish submission and accept the next candidate reserved by the server. */
     public void submissionSucceeded(Task nextTask) {
         Objects.requireNonNull(nextTask);
@@ -337,6 +373,7 @@ public final class WorkflowController {
             }
             clearCompletedTask();
             reservedTask = nextTask;
+            reservationStatus = TaskReservationService.Status.RESERVED;
             lockedTasks.put(nextTask.id(), nextTask);
             transition(State.RESERVED_PREVIEW);
         });
@@ -421,6 +458,8 @@ public final class WorkflowController {
             completionDraft = null;
             auxiliaryRetry = null;
             completionChangesetId = null;
+            completedTaskId = null;
+            reservationStatus = null;
             editLayer = null;
             recoveryState = null;
             state = State.DISCONNECTED;
@@ -475,6 +514,7 @@ public final class WorkflowController {
     private void clearCompletedTask() {
         cleanupAllHandles();
         if (activeTask != null) {
+            completedTaskId = activeTask.id();
             lockedTasks.remove(activeTask.id());
             completionDrafts.remove(activeTask.id());
         }
@@ -562,7 +602,8 @@ public final class WorkflowController {
 
     private Snapshot snapshotOnEdt() {
         return new Snapshot(state, activeChallenge, reservedTask, activeTask, completionDraft, nextMode, editLayer,
-                auxiliaryRetry, completionChangesetId, List.copyOf(lockedTasks.values()),
+                auxiliaryRetry, completionChangesetId, completedTaskId, reservationStatus,
+                List.copyOf(lockedTasks.values()),
                 List.copyOf(completionDrafts.values()));
     }
 

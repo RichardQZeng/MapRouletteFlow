@@ -19,6 +19,7 @@ import org.openstreetmap.josm.gui.preferences.PreferenceTabbedPane;
 import org.openstreetmap.josm.gui.preferences.SubPreferenceSetting;
 import org.openstreetmap.josm.gui.preferences.TabPreferenceSetting;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
+import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.tools.GBC;
 
 /**
@@ -26,6 +27,7 @@ import org.openstreetmap.josm.tools.GBC;
  */
 public class MapRouletteTaskPreference implements SubPreferenceSetting {
     private static final StringProperty NEXT_MODE = new StringProperty("maproulette.task.next-mode", NextMode.RANDOM.name());
+    private static final String NEXT_MODE_CHALLENGE = "maproulette.task.next-mode.challenge.";
     private static final IntegerProperty POINT_RADIUS = new IntegerProperty("maproulette.task.point-radius", 100);
     private static final IntegerProperty GEOMETRY_PADDING = new IntegerProperty("maproulette.task.geometry-padding", 10);
     private static final BooleanProperty AUTO_CENTER = new BooleanProperty("maproulette.task.auto-center", true);
@@ -76,6 +78,25 @@ public class MapRouletteTaskPreference implements SubPreferenceSetting {
     /** Persist a next-task mode selected from the completion workflow. */
     public static void setNextMode(NextMode mode) {
         NEXT_MODE.put(mode.name());
+        final var workflow = WorkflowController.getInstance();
+        final var challenge = workflow.snapshot().activeChallenge();
+        workflow.setNextMode(challenge == null ? mode : getNextMode(challenge.id()));
+    }
+
+    public static NextMode getNextMode(long challengeId) {
+        final var value = Config.getPref().get(NEXT_MODE_CHALLENGE + challengeId, null);
+        if (value == null) {
+            return getNextMode();
+        }
+        try {
+            return NextMode.valueOf(value);
+        } catch (IllegalArgumentException exception) {
+            return getNextMode();
+        }
+    }
+
+    public static void setNextMode(long challengeId, NextMode mode) {
+        Config.getPref().put(NEXT_MODE_CHALLENGE + challengeId, mode.name());
         WorkflowController.getInstance().setNextMode(mode);
     }
 

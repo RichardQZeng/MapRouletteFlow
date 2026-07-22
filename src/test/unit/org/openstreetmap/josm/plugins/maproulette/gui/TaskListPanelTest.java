@@ -12,15 +12,21 @@ import java.util.stream.Stream;
 
 import javax.swing.AbstractButton;
 import javax.swing.JTable;
+import javax.swing.JLabel;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.data.osm.DataSet;
+import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
+import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraft;
+import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
+import org.openstreetmap.josm.plugins.maproulette.workflow.TaskReservationService;
+import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.testutils.annotations.Main;
 
@@ -69,6 +75,60 @@ class TaskListPanelTest {
         } finally {
             panel.destroy();
         }
+    }
+
+    @Test
+    void automaticReservationUpdatesPanelWithoutStartingDownload() {
+        final var oldTask = enterSubmittingTask();
+        final var nextTask = task(200);
+        final var panel = new TaskListPanel();
+        try {
+            workflow.submissionSucceeded(nextTask);
+
+            assertEquals(nextTask, panel.getSelected().iterator().next());
+            assertEquals(WorkflowController.State.RESERVED_PREVIEW, workflow.state());
+            assertEquals(oldTask.id(), workflow.snapshot().completedTaskId());
+            assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                    .map(JLabel::getText).anyMatch(text -> text != null && text.contains("No OSM data")));
+        } finally {
+            panel.destroy();
+        }
+    }
+
+    @Test
+    void emptyAutomaticReservationLeavesChallengeVisibleWithTerminalMessage() {
+        enterSubmittingTask();
+        final var panel = new TaskListPanel();
+        try {
+            workflow.submissionSucceeded(TaskReservationService.Status.EMPTY);
+
+            assertEquals(WorkflowController.State.CHALLENGE_IDLE, workflow.state());
+            assertEquals(10, workflow.snapshot().activeChallenge().id());
+            assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                    .map(JLabel::getText).anyMatch(text -> text != null && text.contains("No more tasks")));
+        } finally {
+            panel.destroy();
+        }
+    }
+
+    private Task enterSubmittingTask() {
+        workflow.connect();
+        workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null));
+        final var task = task(100);
+        workflow.reserveCandidate(task);
+        workflow.beginDownload(null);
+        workflow.activateTask(task, new OsmDataLayer(new DataSet(), "test", null));
+        workflow.draftCompletion(new CompletionDraft(task, CompletionResult.CANT_COMPLETE, "", "", null,
+                java.util.Map.of(), NextMode.RANDOM));
+        workflow.beginSubmission();
+        workflow.statusCommitted(null);
+        return task;
+    }
+
+    private static Task task(long id) {
+        return new Task(id, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED, null, null,
+                null, null, 0, null, null, null, false, null, "");
     }
 
     private static Stream<Component> descendants(Container container) {

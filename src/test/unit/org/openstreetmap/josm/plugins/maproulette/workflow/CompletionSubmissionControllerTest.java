@@ -31,12 +31,27 @@ class CompletionSubmissionControllerTest {
     private FakeGateway gateway;
     private CompletionSubmissionController controller;
     private Task task;
+    private TaskReservationService.Result nextResult;
+    private IOException nextFailure;
+    private int nextCalls;
+    private CompletionDraft nextDraft;
 
     @BeforeEach
     void setUp() {
         workflow.shutdown();
         gateway = new FakeGateway();
-        controller = new CompletionSubmissionController(workflow, gateway);
+        nextResult = new TaskReservationService.Result(TaskReservationService.Status.EMPTY, null);
+        controller = new CompletionSubmissionController(workflow, gateway, draft -> {
+            nextCalls++;
+            nextDraft = draft;
+            if (nextFailure != null) {
+                throw nextFailure;
+            }
+            if (nextResult.status() == TaskReservationService.Status.RESERVED) {
+                workflow.submissionSucceeded(nextResult.task());
+            }
+            return nextResult;
+        });
         task = enterActiveWorkflow();
     }
 
@@ -67,9 +82,11 @@ class CompletionSubmissionControllerTest {
 
         assertEquals(1, gateway.statusCalls);
         assertEquals(1, gateway.commentCalls);
+        assertEquals(1, nextCalls);
         assertTrue(observed.contains(State.COMPLETION_DRAFT));
         assertTrue(observed.contains(State.SUBMITTING));
         assertEquals(State.CHALLENGE_IDLE, workflow.state());
+        assertEquals(TaskReservationService.Status.EMPTY, workflow.snapshot().reservationStatus());
         assertNull(workflow.snapshot().activeTask());
         assertNull(workflow.snapshot().completionDraft());
         assertFalse(workflow.getLockedTasks().stream().anyMatch(locked -> locked.id() == task.id()));
@@ -100,6 +117,7 @@ class CompletionSubmissionControllerTest {
         assertEquals(State.RECOVERABLE_ERROR, workflow.state());
         assertEquals(1, gateway.statusCalls);
         assertEquals(1, gateway.commentCalls);
+        assertEquals(0, nextCalls);
         assertNotNull(workflow.snapshot().auxiliaryRetry());
         assertTrueNoTaskLock();
         assertNotNull(workflow.snapshot().completionDraft());
@@ -109,6 +127,7 @@ class CompletionSubmissionControllerTest {
 
         assertEquals(1, gateway.statusCalls);
         assertEquals(2, gateway.commentCalls);
+        assertEquals(1, nextCalls);
         assertEquals(State.CHALLENGE_IDLE, workflow.state());
     }
 
@@ -224,6 +243,55 @@ class CompletionSubmissionControllerTest {
         assertThrows(IOException.class, controller::submitFixedWithoutUpload);
         assertEquals(1, gateway.statusCalls);
         assertEquals(State.RECOVERABLE_ERROR, workflow.state());
+    }
+
+    @Test
+    void successfulCompletionAutomaticallyReservesSelectedNearbyTaskWithoutDownloading() throws IOException {
+        final var candidate = new Task(200, "next", null, null, 10, null, null, new DataSet(), null,
+                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+        nextResult = new TaskReservationService.Result(TaskReservationService.Status.RESERVED, candidate);
+        final var nearbyDraft = new CompletionDraft(task, CompletionResult.CANT_COMPLETE, "", "", null, Map.of(),
+                NextMode.NEARBY);
+
+        final var states = new ArrayList<State>();
+        final var listener = (java.beans.PropertyChangeListener) event -> states.add(workflow.state());
+        workflow.addPropertyChangeListener(listener);
+        try {
+            controller.submit(nearbyDraft);
+        } finally {
+            workflow.removePropertyChangeListener(listener);
+        }
+
+        assertEquals(1, nextCalls);
+        assertEquals(NextMode.NEARBY, nextDraft.nextMode());
+        assertEquals(State.RESERVED_PREVIEW, workflow.state());
+        assertSame(candidate, workflow.snapshot().reservedTask());
+        assertEquals(100L, workflow.snapshot().completedTaskId());
+        assertFalse(states.contains(State.STARTING_DOWNLOAD));
+    }
+
+    @Test
+    void nextReservationFailureDoesNotMakeCommittedCompletionRetryable() throws IOException {
+        nextFailure = new IOException("candidate failed");
+
+        controller.submit(draft(""));
+
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+        assertEquals(TaskReservationService.Status.REQUEST_FAILED, workflow.snapshot().reservationStatus());
+    }
+
+    @Test
+    void excludedNextCandidatesEndCompletionWithoutStatusRetry() throws IOException {
+        nextResult = new TaskReservationService.Result(TaskReservationService.Status.EXCLUDED_RETRIES_EXHAUSTED,
+                null);
+
+        controller.submit(draft(""));
+
+        assertEquals(1, gateway.statusCalls);
+        assertEquals(State.CHALLENGE_IDLE, workflow.state());
+        assertEquals(TaskReservationService.Status.EXCLUDED_RETRIES_EXHAUSTED,
+                workflow.snapshot().reservationStatus());
     }
 
     private void assertTrueNoTaskLock() {

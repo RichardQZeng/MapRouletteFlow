@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.data.osm.DataSet;
+import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
@@ -87,6 +88,62 @@ class TaskReservationServiceTest {
                 () -> new TaskReservationService(workflow, api).reserve(10, NextMode.RANDOM, null,
                         ignored -> false));
         assertEquals(0, api.candidates.size());
+    }
+
+    @Test
+    void automaticNearbyReservationUsesCompletedTaskAndTransitionsDirectlyToPreview() throws Exception {
+        final var completed = enterSubmittingCompletion();
+        final var candidate = task(200, 10);
+        final var api = new FakeApi(candidate);
+
+        final var result = new TaskReservationService(workflow, api).reserveAfterCompletion(10, NextMode.NEARBY,
+                completed.id(), ignored -> false);
+
+        assertEquals(TaskReservationService.Status.RESERVED, result.status());
+        assertEquals(List.of(100L), api.proximities);
+        assertSame(candidate, workflow.snapshot().reservedTask());
+        assertEquals(100L, workflow.snapshot().completedTaskId());
+        assertEquals(WorkflowController.State.RESERVED_PREVIEW, workflow.state());
+    }
+
+    @Test
+    void automaticRandomReservationOmitsProximity() throws Exception {
+        enterSubmittingCompletion();
+        final var api = new FakeApi();
+
+        final var result = new TaskReservationService(workflow, api).reserveAfterCompletion(10, NextMode.RANDOM, 100,
+                ignored -> false);
+
+        assertEquals(TaskReservationService.Status.EMPTY, result.status());
+        assertEquals(Collections.singletonList(null), api.proximities);
+        assertEquals(WorkflowController.State.SUBMITTING, workflow.state());
+    }
+
+    @Test
+    void automaticExcludedCandidatesAreReleasedAndStopAfterThreeRetries() throws Exception {
+        enterSubmittingCompletion();
+        final var excluded = task(200, 10);
+        final var api = new FakeApi(excluded, excluded, excluded, excluded, task(201, 10));
+
+        final var result = new TaskReservationService(workflow, api).reserveAfterCompletion(10, NextMode.NEARBY, 100,
+                ignored -> true);
+
+        assertEquals(TaskReservationService.Status.EXCLUDED_RETRIES_EXHAUSTED, result.status());
+        assertEquals(4, api.candidates.size());
+        assertEquals(4, api.operations.stream().filter(operation -> operation.startsWith("release:")).count());
+        assertEquals(WorkflowController.State.SUBMITTING, workflow.state());
+    }
+
+    private Task enterSubmittingCompletion() {
+        final var completed = task(100, 10);
+        workflow.reserveCandidate(completed);
+        workflow.beginDownload(null);
+        workflow.activateTask(completed, new OsmDataLayer(new DataSet(), "test", null));
+        workflow.draftCompletion(new CompletionDraft(completed, CompletionResult.CANT_COMPLETE, "", "", null,
+                java.util.Map.of(), NextMode.NEARBY));
+        workflow.beginSubmission();
+        workflow.statusCommitted(null);
+        return completed;
     }
 
     private static final class FakeApi implements TaskReservationService.Api {

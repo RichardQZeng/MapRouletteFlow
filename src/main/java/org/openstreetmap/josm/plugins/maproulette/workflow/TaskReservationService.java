@@ -3,6 +3,8 @@ package org.openstreetmap.josm.plugins.maproulette.workflow;
 
 import java.io.IOException;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.LongPredicate;
 
 import org.openstreetmap.josm.plugins.maproulette.api.ChallengeAPI;
@@ -21,7 +23,8 @@ public final class TaskReservationService {
     public enum Status {
         RESERVED,
         EMPTY,
-        EXCLUDED_RETRIES_EXHAUSTED
+        EXCLUDED_RETRIES_EXHAUSTED,
+        REQUEST_FAILED
     }
 
     /**
@@ -73,11 +76,24 @@ public final class TaskReservationService {
      */
     public Result reserve(long challengeId, NextMode mode, @Nullable Long completedTaskId, LongPredicate ignoredTask)
             throws IOException {
+        return reserve(challengeId, mode, completedTaskId, ignoredTask, workflow::canRequestCandidate,
+                workflow::reserveCandidate);
+    }
+
+    /** Reserve one next candidate after status and auxiliary completion operations commit. */
+    public Result reserveAfterCompletion(long challengeId, NextMode mode, long completedTaskId,
+            LongPredicate ignoredTask) throws IOException {
+        return reserve(challengeId, mode, completedTaskId, ignoredTask,
+                () -> workflow.canRequestNextCandidate(challengeId, completedTaskId), workflow::submissionSucceeded);
+    }
+
+    private Result reserve(long challengeId, NextMode mode, @Nullable Long completedTaskId, LongPredicate ignoredTask,
+            BooleanSupplier guard, Consumer<Task> accept) throws IOException {
         Objects.requireNonNull(mode);
         Objects.requireNonNull(ignoredTask);
         final Long proximity = mode == NextMode.NEARBY ? completedTaskId : null;
         for (int retry = 0; retry <= MAX_EXCLUDED_RETRIES; retry++) {
-            if (!workflow.canRequestCandidate()) {
+            if (!guard.getAsBoolean()) {
                 throw new IllegalStateException("Pending MapRoulette work blocks candidate replacement");
             }
             final var task = api.prioritizedTask(challengeId, proximity);
@@ -93,7 +109,7 @@ public final class TaskReservationService {
                 throw new IOException("MapRoulette returned a task from a different challenge");
             }
             try {
-                workflow.reserveCandidate(task);
+                accept.accept(task);
             } catch (RuntimeException exception) {
                 api.release(task.id());
                 throw exception;

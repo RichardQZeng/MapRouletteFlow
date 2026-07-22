@@ -116,7 +116,11 @@ public final class TaskListPanel extends ToggleDialog {
 
         workflow.addPropertyChangeListener(workflowListener);
         createLayout(panel, true, Collections.emptyList());
-        updateFromSnapshot(workflow.snapshot());
+        final var snapshot = workflow.snapshot();
+        updateFromSnapshot(snapshot);
+        if (snapshot.reservedTask() != null) {
+            presentReservedPreview(snapshot);
+        }
     }
 
     /** Route an external MapRoulette challenge URL through the same workflow as panel input. */
@@ -172,7 +176,9 @@ public final class TaskListPanel extends ToggleDialog {
         try {
             final var challenge = ChallengeAPI.challenge(challengeId);
             workflow.selectChallenge(challenge);
-            final var result = reservations.reserve(challengeId, workflow.snapshot().nextMode(), null,
+            workflow.setNextMode(MapRouletteTaskPreference.getNextMode(challengeId));
+            final var snapshot = workflow.snapshot();
+            final var result = reservations.reserve(challengeId, snapshot.nextMode(), snapshot.completedTaskId(),
                     IgnoreList::isTaskIgnored);
             GuiHelper.runInEDT(() -> finishReservation(challenge, result, generation));
         } catch (Exception exception) {
@@ -188,9 +194,6 @@ public final class TaskListPanel extends ToggleDialog {
         updateChallenge(challenge);
         switch (result.status()) {
         case RESERVED -> {
-            final var task = result.task();
-            showTaskOnMap(task);
-            startRefreshTimer(task.id());
             message.setText(tr("One task is reserved. No OSM data has been downloaded."));
         }
         case EMPTY -> {
@@ -202,6 +205,7 @@ public final class TaskListPanel extends ToggleDialog {
             message.setText(tr("Excluded tasks were returned repeatedly; stopped after {0} retries.",
                     TaskReservationService.MAX_EXCLUDED_RETRIES));
         }
+        case REQUEST_FAILED -> message.setText(tr("The next task could not be reserved."));
         }
         updateFromSnapshot(workflow.snapshot());
     }
@@ -388,14 +392,59 @@ public final class TaskListPanel extends ToggleDialog {
     }
 
     private void setNextMode(NextMode mode) {
-        if (workflow.snapshot().nextMode() != mode) {
-            workflow.setNextMode(mode);
+        final var snapshot = workflow.snapshot();
+        if (snapshot.nextMode() != mode) {
+            if (snapshot.activeChallenge() == null) {
+                MapRouletteTaskPreference.setNextMode(mode);
+            } else {
+                MapRouletteTaskPreference.setNextMode(snapshot.activeChallenge().id(), mode);
+            }
         }
     }
 
     private void workflowChanged(PropertyChangeEvent event) {
         if (WorkflowController.SNAPSHOT_PROPERTY.equals(event.getPropertyName())) {
-            updateFromSnapshot((Snapshot) event.getNewValue());
+            final var oldSnapshot = (Snapshot) event.getOldValue();
+            final var newSnapshot = (Snapshot) event.getNewValue();
+            final var oldReserved = oldSnapshot.reservedTask();
+            final var newReserved = newSnapshot.reservedTask();
+            if (newReserved != null && (oldReserved == null || oldReserved.id() != newReserved.id())) {
+                presentReservedPreview(newSnapshot);
+            } else if (oldSnapshot.state() == State.SUBMITTING && newSnapshot.state() == State.CHALLENGE_IDLE) {
+                showAutomaticReservationOutcome(newSnapshot);
+            }
+            updateFromSnapshot(newSnapshot);
+        }
+    }
+
+    private void presentReservedPreview(Snapshot snapshot) {
+        final var task = snapshot.reservedTask();
+        if (task == null) {
+            return;
+        }
+        if (MainApplication.getMap() != null) {
+            showTaskOnMap(task);
+            startRefreshTimer(task.id());
+        }
+        if (snapshot.completedTaskId() == null) {
+            message.setText(tr("One task is reserved. No OSM data has been downloaded."));
+        } else {
+            message.setText(tr("Task {0} was completed. Task {1} is reserved. No OSM data has been downloaded; "
+                    + "choose Start & Download to begin editing.", snapshot.completedTaskId(), task.id()));
+        }
+    }
+
+    private void showAutomaticReservationOutcome(Snapshot snapshot) {
+        clearTaskPreview();
+        final var completed = snapshot.completedTaskId();
+        if (snapshot.reservationStatus() == TaskReservationService.Status.EMPTY) {
+            message.setText(tr("Task {0} was completed. No more tasks are available for this challenge.", completed));
+        } else if (snapshot.reservationStatus() == TaskReservationService.Status.EXCLUDED_RETRIES_EXHAUSTED) {
+            message.setText(tr("Task {0} was completed, but excluded tasks were returned repeatedly. "
+                    + "Use Load Challenge to try again or review Exclusions.", completed));
+        } else if (snapshot.reservationStatus() == TaskReservationService.Status.REQUEST_FAILED) {
+            message.setText(tr("Task {0} was completed, but the next task could not be reserved. "
+                    + "Use Load Challenge to try again.", completed));
         }
     }
 
