@@ -41,13 +41,9 @@ actual successful OSM upload before submitting a Fixed result.
 
 ## Build
 
-The project follows the JOSM plugin repository layout and expects the shared
-JOSM plugin build files in the parent directory.
-
-For local builds, place this repository in a JOSM plugins checkout where the
-parent `pom.xml`, `build-common.xml`, and `00_core_tools` directory are
-available. A standalone clone without those files cannot resolve the
-`plugin-root` Maven parent or Ant imports.
+Maven builds are standalone and download the current JOSM snapshot artifacts
+from the JOSM repository. The Ant build remains compatible with the shared JOSM
+plugins checkout used by JOSM CI.
 
 ```text
 mvn test
