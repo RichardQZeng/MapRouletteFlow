@@ -2,93 +2,78 @@
 package org.openstreetmap.josm.plugins.maproulette.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.awt.event.ActionEvent;
-import java.util.concurrent.ExecutionException;
+import java.awt.Component;
+import java.awt.Container;
+import java.util.Arrays;
+import java.util.stream.Stream;
 
-import javax.swing.Action;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JMenuItem;
+import javax.swing.AbstractButton;
 import javax.swing.JTable;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.openstreetmap.josm.data.Bounds;
 import org.openstreetmap.josm.data.osm.DataSet;
-import org.openstreetmap.josm.gui.MainApplication;
-import org.openstreetmap.josm.gui.MapViewState;
-import org.openstreetmap.josm.gui.layer.OsmDataLayer;
-import org.openstreetmap.josm.plugins.maproulette.actions.IgnoreAction;
+import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
+import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
+import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
-import org.openstreetmap.josm.plugins.maproulette.util.LoggingHandler;
-import org.openstreetmap.josm.plugins.maproulette.util.MapRouletteConfig;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
+import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.testutils.annotations.Main;
-import org.openstreetmap.josm.testutils.annotations.Projection;
 
-import mockit.Mock;
-import mockit.MockUp;
-
-/**
- * Test class for {@link TaskListPanel}
- */
-@LoggingHandler
+@BasicPreferences
 @Main
-@MapRouletteConfig
-@Projection
-public class TaskListPanelTest {
+class TaskListPanelTest {
+    private final WorkflowController workflow = WorkflowController.getInstance();
 
-    /**
-     * Fire the ignore action
-     *
-     * @param panel      The panel to use
-     * @param ignoreType The ignore action to use
-     */
-    public static void fireIgnoreAction(TaskListPanel panel, IgnoreAction.IgnoreType ignoreType) {
-        final var table = ((JTable) ((JComponent) ((JComponent) ((JComponent) panel
-                .getComponent(1 /* The scroll pane */)).getComponent(0 /* The viewport */))
-                        .getComponent(0 /* A panel */)).getComponent(2 /* The table */));
-        final var menu = table.getComponentPopupMenu();
-        final var menuItem = (JMenuItem) switch (ignoreType) {
-        case IGNORE_TASK -> menu.getComponent(2);
-        case IGNORE_CHALLENGE -> menu.getComponent(3);
-        };
-        menu.setInvoker(table);
-        final var action = menuItem.getAction();
-        assertEquals(ignoreType.getButtonText(), action.getValue(Action.NAME));
-        action.actionPerformed(new ActionEvent(menuItem, 0, "ignore"));
+    @AfterEach
+    void tearDown() {
+        workflow.shutdown();
     }
 
     @Test
-    void testDuplicateKeyIssue() throws ExecutionException, InterruptedException {
+    void mainFlowHasSinglePreviewControlsAndNoBatchTable() {
+        workflow.connect();
         final var panel = new TaskListPanel();
-        final var action = getDownloadAction(panel);
-        final var bounds = new Bounds(36.0770518, -119.1139411, 36.0839216, -119.0992458);
-        MainApplication.getLayerManager().addLayer(new OsmDataLayer(new DataSet(), "testDuplicateKeyIssue", null));
-        new MockUp<MapViewState.MapViewRectangle>() {
-            @Mock
-            public Bounds getLatLonBoundsBox() {
-                return bounds;
-            }
-        };
-        action.actionPerformed(null);
-        MainApplication.worker.submit(() -> {
-            /* Sync thread */ }).get();
-        action.actionPerformed(null);
-        MainApplication.worker.submit(() -> {
-            /* Sync thread */ }).get();
+        try {
+            final var buttonTexts = descendants(panel).filter(AbstractButton.class::isInstance)
+                    .map(AbstractButton.class::cast).map(AbstractButton::getText).toList();
+            assertTrue(buttonTexts.contains("Load Challenge"));
+            assertTrue(buttonTexts.contains("Random"));
+            assertTrue(buttonTexts.contains("Nearby"));
+            assertTrue(buttonTexts.contains("Start & Download"));
+            assertTrue(buttonTexts.contains("Release"));
+            assertFalse(buttonTexts.stream().anyMatch(text -> text != null && text.contains("10")));
+            assertTrue(descendants(panel).noneMatch(JTable.class::isInstance));
+        } finally {
+            panel.destroy();
+        }
     }
 
-    /**
-     * Get the download action for a panel
-     *
-     * @param taskListPanel The panel to use
-     * @return The download action
-     */
-    public static Action getDownloadAction(TaskListPanel taskListPanel) {
-        final var action = ((JButton) ((JComponent) ((JComponent) taskListPanel.getComponent(2 /* The side buttons */))
-                .getComponent(0 /* A singular JPanel */)).getComponent(0 /* The download button */)).getAction();
-        assertEquals("org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel$DownloadDataAction",
-                action.getClass().getName());
-        return action;
+    @Test
+    void controllerReservationIsTheOnlyPanelSelection() {
+        workflow.connect();
+        workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null));
+        final var task = new Task(100, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
+                null, null, null, null, 0, null, null, null, false, null, "");
+        workflow.reserveCandidate(task);
+        final var panel = new TaskListPanel();
+        try {
+            assertEquals(1, panel.getSelected().size());
+            assertEquals(task, panel.getSelected().iterator().next());
+        } finally {
+            panel.destroy();
+        }
+    }
+
+    private static Stream<Component> descendants(Container container) {
+        return Arrays.stream(container.getComponents())
+                .flatMap(component -> component instanceof Container child
+                        ? Stream.concat(Stream.of(component), descendants(child))
+                        : Stream.of(component));
     }
 }

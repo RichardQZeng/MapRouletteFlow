@@ -15,10 +15,10 @@ import javax.swing.JPopupMenu;
 import org.openstreetmap.josm.actions.JosmAction;
 import org.openstreetmap.josm.data.Bounds;
 import org.openstreetmap.josm.data.osm.BBox;
-import org.openstreetmap.josm.data.osm.IPrimitive;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.plugins.maproulette.api.model.ClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskPreviewBounds;
 import org.openstreetmap.josm.tools.Shortcut;
 
 /**
@@ -47,10 +47,8 @@ public class GoToTaskLocation extends JosmAction {
         final var component = ((JPopupMenu) ((JMenuItem) e.getSource()).getParent()).getInvoker();
         final List<?> objects = ActionUtils.getSelectedItems(component);
         for (var obj : objects) {
-            if (obj instanceof Task t && t.location() != null) {
-                for (IPrimitive p : t.geometries().allNonDeletedPrimitives()) {
-                    locations.add(p.getBBox());
-                }
+            if (obj instanceof Task task) {
+                TaskPreviewBounds.forTask(task).map(Bounds::toBBox).ifPresent(locations::add);
             } else if (obj instanceof ClusteredPoint p) {
                 locations.add(p.location().getBBox());
             }

@@ -55,6 +55,7 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
 import org.openstreetmap.josm.plugins.maproulette.data.HiddenList;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskPreviewBounds;
 import org.openstreetmap.josm.plugins.maproulette.io.upload.LateUploadHook;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.ColorHelper;
@@ -115,7 +116,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
     /**
      * The bounds of the points
      */
-    private final Bounds bounds;
+    private Bounds bounds;
 
     /**
      * Create a new layer
@@ -126,7 +127,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
     public MapRouletteClusteredPointLayer(Bounds bounds, Collection<TaskClusteredPoint> points) {
         super(tr("MapRoulette Task Layer"));
         this.pointBucket.addAll(points);
-        this.bounds = bounds;
+        this.bounds = TaskPreviewBounds.forTasks(points).orElse(bounds);
         this.taskUpdated = tasks -> {
             final var taskIds = tasks.keySet().stream().mapToLong(Long::longValue).sorted().toArray();
             final Predicate<Locatable> filter = point -> Arrays.binarySearch(taskIds, point.id()) >= 0;
@@ -155,6 +156,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
             this.pointMap.add(entry.getValue());
             this.pointBucket.add(entry.getValue());
         }
+        this.bounds = TaskPreviewBounds.forTasks(this.pointMap).orElse(null);
         final Map<Long, TaskClusteredPoint> updateCollection = this.pointBucket.stream()
                 .collect(Collectors.toMap(Identifier::id, c -> c));
         this.updatedDataListeners.fireEvent(consumer -> consumer.accept(updateCollection));
@@ -183,7 +185,9 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
 
     @Override
     public void visitBoundingBox(BoundingXYVisitor v) {
-        v.visit(this.bounds);
+        if (this.bounds != null) {
+            v.visit(this.bounds);
+        }
     }
 
     @Override
@@ -203,8 +207,8 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
         final var mrColor = LOCKED_TASK_COLOR.get();
         final var mrColorOpacity = new Color(mrColor.getRed(), mrColor.getGreen(), mrColor.getBlue(), 128);
         final var taskListPanel = MainApplication.getMap().getToggleDialog(TaskListPanel.class);
-
-        final var listSelected = taskListPanel.getSelected();
+        final var listSelected = taskListPanel == null ? Collections.<TaskClusteredPoint>emptyList()
+                : taskListPanel.getSelected();
 
         painter.enableSlowOperations(mv.getMapMover() == null || !mv.getMapMover().movementInProgress()
                 || !PROPERTY_HIDE_LABELS_WHILE_DRAGGING.get());
@@ -251,6 +255,9 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
         final var symbol = new Symbol(SymbolShape.CIRCLE, 10, null, mrColorOpacity, mrColorOpacity);
         final var stroke = new BasicStroke(8f);
         for (var task : WorkflowController.getInstance().getLockedTasks()) {
+            if (task.geometries().allNonDeletedPrimitives().isEmpty() && task.location() != null) {
+                painter.drawNodeIcon(task.location(), MR_IMAGE, false, listSelected.contains(task), false, 0);
+            }
             for (INode n : task.geometries().searchNodes(box)) {
                 if (n.isTagged() || !n.isReferredByWays(1)) {
                     painter.drawNodeSymbol(n, symbol, mrColorOpacity, mrColorOpacity);
@@ -355,7 +362,9 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
     public synchronized void destroy() {
         super.destroy();
         this.selectionListeners.fireEvent(listener -> listener.accept(Collections.emptyList()));
-        MainApplication.getMap().mapView.removeMouseListener(this);
+        if (MainApplication.getMap() != null) {
+            MainApplication.getMap().mapView.removeMouseListener(this);
+        }
         LateUploadHook.removeUploadListener(this.taskUpdated);
     }
 
@@ -394,6 +403,25 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
      */
     public Collection<TaskClusteredPoint> getTasks() {
         return Collections.unmodifiableCollection(this.pointBucket);
+    }
+
+    /** Replace layer content with the current single-task preview. */
+    public synchronized void replaceTasks(Collection<? extends TaskClusteredPoint> tasks) {
+        this.pointBucket.clear();
+        this.pointMap.clear();
+        this.selected.clear();
+        this.pointBucket.addAll(tasks);
+        this.pointMap.addAll(tasks);
+        this.bounds = TaskPreviewBounds.forTasks(tasks).orElse(null);
+        final Map<Long, TaskClusteredPoint> updateCollection = this.pointMap.stream()
+                .collect(Collectors.toMap(Identifier::id, point -> point));
+        this.updatedDataListeners.fireEvent(consumer -> consumer.accept(updateCollection));
+        GuiHelper.runInEDT(this::invalidate);
+    }
+
+    /** Current dynamic data bounds, primarily for autoscale and tests. */
+    public Bounds getDataBounds() {
+        return bounds;
     }
 
     /**

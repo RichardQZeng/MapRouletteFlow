@@ -1,466 +1,408 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.plugins.maproulette.gui.task.list;
 
-import static org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.getBaseUrl;
-import static org.openstreetmap.josm.tools.I18n.marktr;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
-import java.awt.Color;
 import java.awt.GridBagLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.io.IOException;
 import java.io.Serial;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.Objects;
-import java.util.function.Consumer;
-import java.util.function.LongPredicate;
+import java.util.Collections;
+import java.util.List;
 
+import javax.swing.AbstractAction;
+import javax.swing.ButtonGroup;
+import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JTable;
-import javax.swing.RowFilter;
-import javax.swing.table.TableRowSorter;
+import javax.swing.JRadioButton;
+import javax.swing.SwingUtilities;
 
-import org.openstreetmap.josm.actions.JosmAction;
-import org.openstreetmap.josm.actions.downloadtasks.DownloadParams;
-import org.openstreetmap.josm.data.preferences.CachingProperty;
-import org.openstreetmap.josm.data.preferences.NamedColorProperty;
 import org.openstreetmap.josm.gui.MainApplication;
-import org.openstreetmap.josm.gui.SideButton;
 import org.openstreetmap.josm.gui.dialogs.ToggleDialog;
-import org.openstreetmap.josm.gui.layer.LayerManager;
-import org.openstreetmap.josm.gui.progress.NullProgressMonitor;
 import org.openstreetmap.josm.gui.util.GuiHelper;
-import org.openstreetmap.josm.gui.widgets.FilterField;
-import org.openstreetmap.josm.plugins.maproulette.actions.DownloadTasks;
-import org.openstreetmap.josm.plugins.maproulette.actions.GoToTaskLocation;
-import org.openstreetmap.josm.plugins.maproulette.actions.IgnoreAction;
-import org.openstreetmap.josm.plugins.maproulette.actions.downloadtasks.MapRouletteDownloadTaskBox;
-import org.openstreetmap.josm.plugins.maproulette.api.MRColors;
-import org.openstreetmap.josm.plugins.maproulette.api.model.ClusteredPoint;
-import org.openstreetmap.josm.plugins.maproulette.api.model.Identifier;
+import org.openstreetmap.josm.gui.widgets.JosmTextField;
+import org.openstreetmap.josm.plugins.maproulette.api.ChallengeAPI;
+import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
+import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
-import org.openstreetmap.josm.plugins.maproulette.api_caching.ChallengeCache;
-import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
-import org.openstreetmap.josm.plugins.maproulette.data.HiddenList;
+import org.openstreetmap.josm.plugins.maproulette.data.IgnoreList;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
-import org.openstreetmap.josm.plugins.maproulette.gui.task.current.CurrentTaskPanel;
-import org.openstreetmap.josm.plugins.maproulette.gui.widgets.DefaultPanelListCellRenderer;
+import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference;
+import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
-import org.openstreetmap.josm.tools.GBC;
-import org.openstreetmap.josm.tools.ImageProvider;
-import org.openstreetmap.josm.tools.OpenBrowser;
-import org.openstreetmap.josm.tools.Shortcut;
+import org.openstreetmap.josm.plugins.maproulette.workflow.ChallengeInputParser;
+import org.openstreetmap.josm.plugins.maproulette.workflow.ReservationLockRefresher;
+import org.openstreetmap.josm.plugins.maproulette.workflow.TaskReservationService;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.Snapshot;
+import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.State;
+import org.openstreetmap.josm.tools.GBC;
+import org.openstreetmap.josm.tools.Shortcut;
 
-/**
- * A panel showing the task list for the downloaded bbox
- * Note: This may be folded into a {@link javax.swing.JTabbedPane}.
- */
-public final class TaskListPanel extends ToggleDialog
-        implements LayerManager.LayerChangeListener, Consumer<Collection<TaskClusteredPoint>> {
-    /**
-     * The serial UID for this component
-     */
+/** Main one-challenge, one-reserved-task MapRoulette workflow panel. */
+public final class TaskListPanel extends ToggleDialog {
     @Serial
     private static final long serialVersionUID = -8983504332024481559L;
-    /**
-     * The underlying table
-     */
-    private final JTable table;
-    /**
-     * The underlying model
-     */
-    private final TaskTableModel model;
-    private final LongPredicate hiddenUpdater = this::isHidden;
 
-    /**
-     * Create a new task list panel
-     */
+    private final WorkflowController workflow = WorkflowController.getInstance();
+    private final TaskReservationService reservations = new TaskReservationService(workflow);
+    private final JosmTextField challengeInput = new JosmTextField();
+    private final JButton loadChallenge = new JButton(tr("Load Challenge"));
+    private final JLabel challengeName = new JLabel(tr("Challenge: None"));
+    private final JLabel challengeDetails = new JLabel(" ");
+    private final JRadioButton randomMode = new JRadioButton(tr("Random"));
+    private final JRadioButton nearbyMode = new JRadioButton(tr("Nearby"));
+    private final JLabel taskName = new JLabel(tr("No task reserved"));
+    private final JLabel reservation = new JLabel(" ");
+    private final JLabel taskDetails = new JLabel(" ");
+    private final JLabel message = new JLabel(" ");
+    private final StartDownloadAction startDownloadAction = new StartDownloadAction();
+    private final ReleaseAction releaseAction = new ReleaseAction();
+    private final PropertyChangeListener workflowListener = this::workflowChanged;
+    private volatile boolean destroyed;
+    private boolean loading;
+    private long requestGeneration;
+
     public TaskListPanel() {
-        super(tr("MapRoulette Tasks"), "user_no_image.png", tr("Downloaded MapRoulette tasks"),
-                Shortcut.registerShortcut("maproulette:task_window", tr("Downloaded MapRoulette tasks"),
+        super(tr("MapRoulette Tasks"), "user_no_image.png", tr("MapRoulette challenge workflow"),
+                Shortcut.registerShortcut("maproulette:task_window", tr("MapRoulette challenge workflow"),
                         KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
                 200, false, MapRoulettePreferences.class);
-        model = new TaskTableModel();
-        MainApplication.getLayerManager().addAndFireLayerChangeListener(model);
-        MainApplication.getLayerManager().addAndFireLayerChangeListener(this);
-        table = new JTable(model);
-        final var downloadButton = new SideButton(new DownloadDataAction());
-        final var lockUnlockButton = new SideButton(new LockUnlockTaskAction(table));
-        final var browseButton = new SideButton(new OpenInBrowserAction(table));
-        final var tableRowSorter = new TableRowSorter<>(model);
-        final var menu = new JPopupMenu();
-        final var filterField = new FilterField();
+
+        final var modeGroup = new ButtonGroup();
+        modeGroup.add(randomMode);
+        modeGroup.add(nearbyMode);
+        randomMode.addActionListener(event -> setNextMode(NextMode.RANDOM));
+        nearbyMode.addActionListener(event -> setNextMode(NextMode.NEARBY));
+        loadChallenge.addActionListener(event -> requestChallenge(challengeInput.getText()));
+        challengeInput.addActionListener(event -> requestChallenge(challengeInput.getText()));
+
+        final var modePanel = new JPanel();
+        modePanel.add(randomMode);
+        modePanel.add(nearbyMode);
+        final var inputPanel = new JPanel(new GridBagLayout());
+        inputPanel.add(challengeInput, GBC.std().fill(GBC.HORIZONTAL));
+        inputPanel.add(loadChallenge, GBC.eol());
+
         final var panel = new JPanel(new GridBagLayout());
-        panel.add(filterField, GBC.eol().fill(GBC.HORIZONTAL));
-        panel.add(table.getTableHeader(), GBC.eol().anchor(GBC.LINE_START).fill(GBC.HORIZONTAL));
-        panel.add(table, GBC.eol().anchor(GBC.LINE_START).fill(GBC.BOTH));
-        final RowFilter<TaskTableModel, Integer> defaultFilter = new RowFilter<>() {
-            @Override
-            public boolean include(Entry<? extends TaskTableModel, ? extends Integer> entry) {
-                final var point = (TaskClusteredPoint) entry.getValue(0);
-                return !TaskCache.isHidden(point);
+        panel.add(new JLabel(tr("Challenge ID or URL:")), GBC.eol().anchor(GBC.LINE_START));
+        panel.add(inputPanel, GBC.eol().fill(GBC.HORIZONTAL));
+        panel.add(challengeName, GBC.eol().anchor(GBC.LINE_START).insets(0, 8, 0, 0));
+        panel.add(challengeDetails, GBC.eol().anchor(GBC.LINE_START));
+        panel.add(new JLabel(tr("Next task:")), GBC.std().anchor(GBC.LINE_START));
+        panel.add(modePanel, GBC.eol().anchor(GBC.LINE_START));
+        panel.add(taskName, GBC.eol().anchor(GBC.LINE_START).insets(0, 8, 0, 0));
+        panel.add(reservation, GBC.eol().anchor(GBC.LINE_START));
+        panel.add(taskDetails, GBC.eol().anchor(GBC.LINE_START));
+        panel.add(message, GBC.eol().anchor(GBC.LINE_START).fill(GBC.HORIZONTAL));
+        final var taskActions = new JPanel();
+        taskActions.add(new JButton(startDownloadAction));
+        taskActions.add(new JButton(releaseAction));
+        panel.add(taskActions, GBC.eol().anchor(GBC.LINE_START));
+
+        workflow.addPropertyChangeListener(workflowListener);
+        createLayout(panel, true, Collections.emptyList());
+        updateFromSnapshot(workflow.snapshot());
+    }
+
+    /** Route an external MapRoulette challenge URL through the same workflow as panel input. */
+    public static void loadChallengeInput(String input) {
+        GuiHelper.runInEDT(() -> {
+            if (MainApplication.getMap() == null) {
+                return;
             }
-        };
-        HiddenList.addListUpdater(hiddenUpdater);
-        filterField.filter(expr -> {
-            expr = expr.replace("+", "\\+");
-            final ArrayList<RowFilter<? super TaskTableModel, ? super Integer>> andFilters = new ArrayList<>();
-            andFilters.add(defaultFilter);
-            // split search string on whitespace, do case-insensitive AND search
-            for (var word : expr.split("\\s+", -1)) {
-                andFilters.add(RowFilter.regexFilter("(?i)" + word));
+            var panel = MainApplication.getMap().getToggleDialog(TaskListPanel.class);
+            if (panel == null) {
+                panel = new TaskListPanel();
+                MainApplication.getMap().addToggleDialog(panel);
             }
-            tableRowSorter.setRowFilter(andFilters.size() > 1 ? RowFilter.andFilter(andFilters) : defaultFilter);
-            final var layers = MainApplication.getLayerManager().getLayersOfType(MapRouletteClusteredPointLayer.class);
-            final var ids = layers.stream().map(MapRouletteClusteredPointLayer::getTasks).flatMap(Collection::stream)
-                    .mapToLong(Identifier::id).toArray();
-            HiddenList.update(ids);
-            layers.forEach(MapRouletteClusteredPointLayer::invalidate);
+            panel.challengeInput.setText(input);
+            panel.requestChallenge(input);
         });
-        menu.add(new GoToTaskLocation());
-        menu.add(new DownloadTasks());
-        menu.add(new IgnoreAction(IgnoreAction.IgnoreType.IGNORE_TASK));
-        menu.add(new IgnoreAction(IgnoreAction.IgnoreType.IGNORE_CHALLENGE));
-        table.setComponentPopupMenu(menu);
-        tableRowSorter.setRowFilter(defaultFilter);
-        tableRowSorter.setComparator(0,
-                Comparator.comparing(TaskListPanel::getParentName).thenComparingInt(TaskClusteredPoint::priority)
-                        .thenComparing(TaskListPanel::getTitle).thenComparingLong(TaskClusteredPoint::id));
-        table.setRowSorter(tableRowSorter);
-        table.setDefaultRenderer(ClusteredPoint.class, new TaskListCellRenderer());
-        table.getSelectionModel().addListSelectionListener(l -> {
-            ((LockUnlockTaskAction) lockUnlockButton.getAction()).updateEnabledState();
-            ((OpenInBrowserAction) browseButton.getAction()).updateEnabledState();
-            final Task task;
-            if (!l.getValueIsAdjusting() && this.table.getRowCount() > table.getSelectedRow()
-                    && this.table.getSelectedRow() >= 0) {
-                final var index = table.getRowSorter().convertRowIndexToModel(table.getSelectedRow());
-                final var taskId = ((TaskClusteredPoint) table.getModel().getValueAt(index, -1)).id();
-                task = WorkflowController.getInstance().getLockedTask(taskId);
-            } else {
-                task = null;
+    }
+
+    private void requestChallenge(String input) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            GuiHelper.runInEDT(() -> requestChallenge(input));
+            return;
+        }
+        final var parsed = ChallengeInputParser.parse(input);
+        if (parsed.isEmpty()) {
+            message.setText(tr("Enter a positive challenge ID or a supported maproulette.org challenge URL."));
+            return;
+        }
+        if (!workflow.canSelectChallenge()) {
+            message.setText(tr("Release or complete the current MapRoulette task before loading another challenge."));
+            return;
+        }
+        final var challengeId = parsed.getAsLong();
+        if (IgnoreList.isChallengeIgnored(challengeId)) {
+            final var choice = JOptionPane.showConfirmDialog(MainApplication.getMainFrame(),
+                    tr("Challenge {0} is excluded. Remove it from Exclusions and continue?", challengeId),
+                    tr("Excluded MapRoulette challenge"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (choice != JOptionPane.YES_OPTION) {
+                message.setText(tr("Challenge {0} remains excluded; no task was requested.", challengeId));
+                return;
             }
-            if (!l.getValueIsAdjusting()) {
-                if (task != null) {
-                    if (MainApplication.getMap().getToggleDialog(CurrentTaskPanel.class) == null) {
-                        final var currentTaskPanel = new CurrentTaskPanel();
-                        MainApplication.getMap().addToggleDialog(currentTaskPanel);
-                    }
-                    MainApplication.getMap().getToggleDialog(CurrentTaskPanel.class).refreshModel(task);
-                } else if (MainApplication.getMap().getToggleDialog(CurrentTaskPanel.class) != null) {
-                    MainApplication.getMap().getToggleDialog(CurrentTaskPanel.class).refreshModel(null);
+            IgnoreList.unignoreChallenge(challengeId);
+        }
+
+        loading = true;
+        final var generation = ++requestGeneration;
+        message.setText(tr("Loading challenge {0}...", challengeId));
+        updateEnabledState();
+        MainApplication.worker.execute(() -> loadAndReserve(challengeId, generation));
+    }
+
+    private void loadAndReserve(long challengeId, long generation) {
+        try {
+            final var challenge = ChallengeAPI.challenge(challengeId);
+            workflow.selectChallenge(challenge);
+            final var result = reservations.reserve(challengeId, workflow.snapshot().nextMode(), null,
+                    IgnoreList::isTaskIgnored);
+            GuiHelper.runInEDT(() -> finishReservation(challenge, result, generation));
+        } catch (Exception exception) {
+            GuiHelper.runInEDT(() -> finishFailure(exception, generation));
+        }
+    }
+
+    private void finishReservation(Challenge challenge, TaskReservationService.Result result, long generation) {
+        if (destroyed || generation != requestGeneration) {
+            return;
+        }
+        loading = false;
+        updateChallenge(challenge);
+        switch (result.status()) {
+        case RESERVED -> {
+            final var task = result.task();
+            showTaskOnMap(task);
+            startRefreshTimer(task.id());
+            message.setText(tr("One task is reserved. No OSM data has been downloaded."));
+        }
+        case EMPTY -> {
+            clearTaskPreview();
+            message.setText(tr("No available task was returned for this challenge."));
+        }
+        case EXCLUDED_RETRIES_EXHAUSTED -> {
+            clearTaskPreview();
+            message.setText(tr("Excluded tasks were returned repeatedly; stopped after {0} retries.",
+                    TaskReservationService.MAX_EXCLUDED_RETRIES));
+        }
+        }
+        updateFromSnapshot(workflow.snapshot());
+    }
+
+    private void finishFailure(Exception exception, long generation) {
+        if (destroyed || generation != requestGeneration) {
+            return;
+        }
+        loading = false;
+        message.setText(tr("Could not load or reserve a task: {0}", exception.getMessage()));
+        updateFromSnapshot(workflow.snapshot());
+        ExceptionDialogUtil.explainException(exception);
+    }
+
+    private void startRefreshTimer(long taskId) {
+        ReservationLockRefresher.start(workflow,
+                event -> MainApplication.worker.execute(() -> refreshReservation(taskId)));
+    }
+
+    private void refreshReservation(long taskId) {
+        final var reserved = workflow.snapshot().reservedTask();
+        if (reserved == null || reserved.id() != taskId) {
+            return;
+        }
+        try {
+            TaskAPI.refreshLock(taskId);
+            GuiHelper.runInEDT(() -> {
+                if (isReserved(taskId)) {
+                    message.setText(tr("Reservation refreshed."));
                 }
-            }
-        });
-        tableRowSorter.toggleSortOrder(0); // Start with an initial sort
-        super.createLayout(panel, true, Arrays.asList(downloadButton, lockUnlockButton, browseButton));
+            });
+        } catch (IOException exception) {
+            GuiHelper.runInEDT(() -> {
+                if (isReserved(taskId)) {
+                    message.setText(tr("Reservation refresh failed; use Release if you cannot continue."));
+                    ExceptionDialogUtil.explainException(exception);
+                }
+            });
+        }
     }
 
-    /**
-     * Get the parent name
-     *
-     * @param point The point to get the parent name for
-     * @return The parent name
-     */
-    private static String getParentName(TaskClusteredPoint point) {
-        if (point instanceof ClusteredPoint clusteredPoint) {
-            return clusteredPoint.parentName();
-        } else if (point instanceof Task task) {
+    private boolean isReserved(long taskId) {
+        final var task = workflow.snapshot().reservedTask();
+        return task != null && task.id() == taskId;
+    }
+
+    private void releaseReservation() {
+        final var task = workflow.snapshot().reservedTask();
+        if (task == null) {
+            return;
+        }
+        loading = true;
+        ++requestGeneration;
+        message.setText(tr("Releasing task {0}...", task.id()));
+        updateFromSnapshot(workflow.snapshot());
+        MainApplication.worker.execute(() -> {
+            Exception failure = null;
             try {
-                return ChallengeCache.challenge(task.parentId()).name();
-            } catch (IOException ioException) {
-                ExceptionDialogUtil.explainException(ioException);
+                TaskAPI.release(task.id());
+            } catch (IOException exception) {
+                failure = exception;
             }
-            return tr("Unknown");
+            final var releaseFailure = failure;
+            GuiHelper.runInEDT(() -> {
+                loading = false;
+                if (releaseFailure == null && isReserved(task.id())) {
+                    workflow.releaseReservation();
+                    clearTaskPreview();
+                }
+                if (destroyed) {
+                    return;
+                }
+                if (releaseFailure == null) {
+                    message.setText(tr("Reservation released."));
+                } else {
+                    message.setText(tr("Server release failed; the reservation remains active."));
+                    ExceptionDialogUtil.explainException(releaseFailure);
+                }
+                updateFromSnapshot(workflow.snapshot());
+            });
+        });
+    }
+
+    private void showTaskOnMap(Task task) {
+        final var layers = MainApplication.getLayerManager().getLayersOfType(MapRouletteClusteredPointLayer.class);
+        final MapRouletteClusteredPointLayer layer;
+        if (layers.isEmpty()) {
+            layer = new MapRouletteClusteredPointLayer(TaskPreviewBounds.forTask(task).orElse(null), List.of(task));
+            MainApplication.getLayerManager().addLayer(layer);
+            MainApplication.getMap().mapView.addMouseListener(layer);
         } else {
-            throw new IllegalArgumentException("Unknown class type: " + point.getClass());
+            layer = layers.get(0);
+            layer.replaceTasks(List.of(task));
+            layers.stream().skip(1).forEach(other -> other.replaceTasks(Collections.emptyList()));
+        }
+        if (MapRouletteTaskPreference.isAutoCenter()) {
+            TaskPreviewBounds.forTask(task).ifPresent(bounds -> {
+                if (bounds.isCollapsed()) {
+                    MainApplication.getMap().mapView.zoomTo(bounds.getMax());
+                } else {
+                    MainApplication.getMap().mapView.zoomTo(bounds);
+                }
+            });
         }
     }
 
-    /**
-     * Get the title for a task
-     *
-     * @param point The point to get the title for
-     * @return The title
-     */
-    private static String getTitle(TaskClusteredPoint point) {
-        if (point instanceof ClusteredPoint clusteredPoint) {
-            return clusteredPoint.title();
-        } else if (point instanceof Task task) {
-            return task.name();
-        } else {
-            throw new IllegalArgumentException("Unknown class type: " + point.getClass());
+    private void clearTaskPreview() {
+        MainApplication.getLayerManager().getLayersOfType(MapRouletteClusteredPointLayer.class)
+                .forEach(layer -> layer.replaceTasks(Collections.emptyList()));
+    }
+
+    private void setNextMode(NextMode mode) {
+        if (workflow.snapshot().nextMode() != mode) {
+            workflow.setNextMode(mode);
         }
+    }
+
+    private void workflowChanged(PropertyChangeEvent event) {
+        if (WorkflowController.SNAPSHOT_PROPERTY.equals(event.getPropertyName())) {
+            updateFromSnapshot((Snapshot) event.getNewValue());
+        }
+    }
+
+    private void updateFromSnapshot(Snapshot snapshot) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            GuiHelper.runInEDT(() -> updateFromSnapshot(snapshot));
+            return;
+        }
+        randomMode.setSelected(snapshot.nextMode() == NextMode.RANDOM);
+        nearbyMode.setSelected(snapshot.nextMode() == NextMode.NEARBY);
+        updateChallenge(snapshot.activeChallenge());
+        final var task = snapshot.reservedTask() != null ? snapshot.reservedTask() : snapshot.activeTask();
+        if (task == null) {
+            taskName.setText(tr("No task reserved"));
+            reservation.setText(" ");
+            taskDetails.setText(" ");
+        } else {
+            taskName.setText(tr("Task: {0} (#{1})", task.name(), task.id()));
+            reservation.setText(snapshot.reservedTask() == null ? tr("Active") : tr("Reserved"));
+            taskDetails.setText(tr("Status: {0} | Priority: {1} | Geometry objects: {2}", task.status(),
+                    task.priority(), task.geometries().allNonDeletedPrimitives().size()));
+        }
+        updateEnabledState();
+    }
+
+    private void updateChallenge(Challenge challenge) {
+        if (challenge == null) {
+            challengeName.setText(tr("Challenge: None"));
+            challengeDetails.setText(" ");
+        } else {
+            challengeName.setText(tr("Challenge: {0} (#{1})", challenge.name(), challenge.id()));
+            final var remaining = challenge.tasksRemaining() == null ? tr("unknown") : challenge.tasksRemaining();
+            challengeDetails.setText(tr("Tasks remaining: {0}", remaining));
+        }
+    }
+
+    private void updateEnabledState() {
+        final var snapshot = workflow.snapshot();
+        loadChallenge.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE
+                && workflow.canSelectChallenge());
+        randomMode.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE);
+        nearbyMode.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE);
+        startDownloadAction.setEnabled(!loading && snapshot.state() == State.RESERVED_PREVIEW);
+        releaseAction.setEnabled(!loading && (snapshot.state() == State.RESERVED_PREVIEW
+                || snapshot.state() == State.RECOVERABLE_ERROR && snapshot.reservedTask() != null));
+    }
+
+    /** Current workflow selection used by the preview layer and later completion actions. */
+    public Collection<TaskClusteredPoint> getSelected() {
+        final var snapshot = workflow.snapshot();
+        final var task = snapshot.reservedTask() != null ? snapshot.reservedTask() : snapshot.activeTask();
+        return task == null ? Collections.emptyList() : List.of(task);
     }
 
     @Override
     public void destroy() {
+        destroyed = true;
+        ++requestGeneration;
+        workflow.removePropertyChangeListener(workflowListener);
         super.destroy();
-        MainApplication.getLayerManager().removeAndFireLayerChangeListener(this.model);
-        MainApplication.getLayerManager().removeAndFireLayerChangeListener(this);
-        HiddenList.removeListUpdater(hiddenUpdater);
     }
 
-    /**
-     * Get selected objects
-     *
-     * @return The selected objects
-     */
-    public Collection<TaskClusteredPoint> getSelected() {
-        final var selected = this.table.getSelectedRows();
-        final var set = new HashSet<TaskClusteredPoint>(selected.length);
-        for (var i : selected) {
-            set.add((TaskClusteredPoint) this.table.getValueAt(i, 0));
-        }
-        return set;
-    }
-
-    @Override
-    public void accept(Collection<TaskClusteredPoint> selected) {
-        final int[] toSelect = selected.stream().mapToInt(((TaskTableModel) table.getModel())::indexOf)
-                .filter(i -> i >= 0).map(i -> table.getRowSorter().convertRowIndexToView(i)).sorted().distinct()
-                .filter(i -> i >= 0).toArray();
-        final var selModel = table.getSelectionModel();
-        selModel.clearSelection();
-        for (int i : toSelect) { // Not ideal. Probably won't be a perf issue though.
-            selModel.addSelectionInterval(i, i);
-        }
-        if (toSelect.length > 0) {
-            // Force an update of the row height
-            table.getCellRenderer(toSelect[0], 0).getTableCellRendererComponent(table, table.getValueAt(toSelect[0], 0),
-                    true, true, toSelect[0], 0);
-            table.scrollRectToVisible(table.getCellRect(toSelect[0], 0, true));
-        }
-    }
-
-    @Override
-    public void layerAdded(LayerManager.LayerAddEvent e) {
-        if (e.getAddedLayer()instanceof MapRouletteClusteredPointLayer layer) {
-            layer.addSelectionListener(this);
-        }
-    }
-
-    @Override
-    public void layerRemoving(LayerManager.LayerRemoveEvent e) {
-        if (e.getRemovedLayer()instanceof MapRouletteClusteredPointLayer layer) {
-            layer.removeSelectionListener(this);
-        }
-    }
-
-    @Override
-    public void layerOrderChanged(LayerManager.LayerOrderChangeEvent e) {
-        // Ignore
-    }
-
-    /**
-     * Check if a task is hidden
-     * @param id The task to check
-     * @return {@code true} if the task is hidden
-     */
-    private boolean isHidden(long id) {
-        for (int i = 0; i < this.model.getRowCount(); i++) {
-            if (id == this.model.get(i).id()) {
-                return this.table.convertRowIndexToView(i) < 0;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Open task in browser
-     */
-    private static final class OpenInBrowserAction extends JosmAction {
-        /**
-         * The serial UID for this component
-         */
+    private final class StartDownloadAction extends AbstractAction {
         @Serial
-        private static final long serialVersionUID = 6133894141191468929L;
-        /**
-         * The table to use
-         */
-        private final JTable table;
+        private static final long serialVersionUID = 1L;
 
-        /**
-         * Open a task in the browser
-         *
-         * @param table The originating table
-         */
-        OpenInBrowserAction(JTable table) {
-            super(tr("Open Task in browser"), "presets/misc/contact", tr("Open MapRoulette Tasks in browser"),
-                    Shortcut.registerShortcut("maproulette:open_tasks_in_browser",
-                            tr("MapRoulette: Open Tasks in browser"), KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
-                    false);
-            Objects.requireNonNull(table, "table");
-            this.table = table;
+        StartDownloadAction() {
+            super(tr("Start & Download"));
         }
 
         @Override
-        public void actionPerformed(ActionEvent e) {
-            final var model = (TaskTableModel) this.table.getModel();
-            if (this.table.getSelectedRows().length < 10) {
-                for (int index : this.table.getSelectedRows()) {
-                    final var i = this.table.getRowSorter().convertRowIndexToModel(index);
-                    final var task = model.get(i);
-                    final var url = getBaseUrl().replace("api/v2", "") + "challenge/" + task.parentId() + "/task/"
-                            + task.id();
-                    OpenBrowser.displayUrl(url);
-                }
-            }
-        }
-
-        @Override
-        protected void updateEnabledState() {
-            this.setEnabled(this.table != null && this.table.getSelectedRowCount() < 10
-                    && this.table.getSelectedRowCount() > 0);
+        public void actionPerformed(ActionEvent event) {
+            message.setText(tr("OSM download is not implemented until Phase 4; the reservation remains active."));
         }
     }
 
-    /**
-     * Download data from MapRoulette
-     */
-    private static final class DownloadDataAction extends JosmAction {
-        /**
-         * The serial UID for this component
-         */
+    private final class ReleaseAction extends AbstractAction {
         @Serial
-        private static final long serialVersionUID = -4078764340309276574L;
-        private MapRouletteDownloadTaskBox task;
+        private static final long serialVersionUID = 1L;
 
-        /**
-         * Create a new action
-         */
-        DownloadDataAction() {
-            super(tr("Download Data"), "download", tr("Download MapRoulette Tasks"),
-                    Shortcut.registerShortcut("maproulette:download_tasks", tr("MapRoulette: Download Tasks"),
-                            KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
-                    false);
+        ReleaseAction() {
+            super(tr("Release"));
         }
 
         @Override
-        public void actionPerformed(ActionEvent e) {
-            this.switchType(true);
-        }
-
-        /**
-         * Perform the download in a background thread
-         */
-        private void download() {
-            final var bounds = MainApplication.getMap().mapView.getState().getViewArea().getLatLonBoundsBox();
-            final var task2 = new MapRouletteDownloadTaskBox();
-            task2.download(new DownloadParams().withNewLayer(false), bounds, NullProgressMonitor.INSTANCE);
-            synchronized (this) {
-                if (this.task != null) {
-                    this.task.cancel();
-                }
-                this.task = task2;
-            }
-            MainApplication.worker.submit(() -> GuiHelper.runInEDT(() -> this.switchType(false)));
-        }
-
-        private void switchType(boolean performDownload) {
-            if (performDownload && this.task == null) {
-                MainApplication.worker.execute(this::download);
-                new ImageProvider("cancel").getResource().attachImageIcon(this);
-                this.putValue(NAME, tr("Cancel"));
-            } else {
-                if (this.task != null) {
-                    this.task.cancel();
-                    this.task = null;
-                }
-                this.putValue(NAME, tr("Download Data"));
-                new ImageProvider("download").getResource().attachImageIcon(this);
-            }
-        }
-    }
-
-    /**
-     * A renderer for the task list
-     */
-    private static class TaskListCellRenderer extends DefaultPanelListCellRenderer<TaskClusteredPoint> {
-        /**
-         * The serial UID for this component
-         */
-        @Serial
-        private static final long serialVersionUID = -4182177619455408415L;
-        private static final CachingProperty<Color> COLOR_MODIFIED = new NamedColorProperty(
-                marktr("MapRoulette: Task Modified"), Color.GREEN.brighter()).cached();
-        private static final CachingProperty<Color> COLOR_LOCKED = new NamedColorProperty(
-                marktr("MapRoulette: Task Locked"), Color.CYAN.brighter()).cached();
-
-        private final JLabel singleLine = new JLabel();
-        private final JLabel priority = new JLabel();
-        private final JLabel difficulty = new JLabel();
-        private final JLabel modified = new JLabel();
-        private final JLabel type = new JLabel();
-        private final JLabel status = new JLabel();
-
-        /**
-         * Create a new renderer
-         */
-        TaskListCellRenderer() {
-            super(TaskClusteredPoint.class);
-            this.setLayout(new GridBagLayout());
-            final var gbc = GBC.eol().anchor(GBC.LINE_START).fill(GBC.HORIZONTAL);
-            this.add(this.singleLine, gbc);
-            this.add(this.priority, gbc);
-            this.add(this.difficulty, gbc);
-            this.add(this.modified, gbc);
-            this.add(this.type, gbc);
-            this.add(this.status, gbc);
-        }
-
-        @Override
-        protected void addRenderComponents(TaskClusteredPoint value, boolean isSelected, boolean cellHasFocus) {
-            this.singleLine.setText(TaskListPanel.getParentName(value) + ": " + TaskListPanel.getTitle(value));
-            this.priority.setVisible(isSelected);
-            this.difficulty.setVisible(isSelected);
-            this.modified.setVisible(isSelected);
-            this.type.setVisible(isSelected);
-            this.status.setVisible(isSelected);
-            if (isSelected) {
-                this.priority.setText(tr("Priority: {0}", value.priority()));
-                if (value instanceof ClusteredPoint point && point.difficulty() != null) {
-                    this.difficulty.setText(tr("Difficulty: {0}", point.difficulty()));
-                    this.difficulty.setVisible(true);
-                } else {
-                    this.difficulty.setVisible(false);
-                }
-                this.modified.setText(tr("Modified: {0}", value.modified()));
-                if (value instanceof ClusteredPoint point) {
-                    this.type.setText(tr("Type: {0}", point.type()));
-                } else {
-                    this.type.setVisible(false);
-                }
-                if (value.status() != null) {
-                    this.status.setText(tr("Status: {0}", value.status()));
-                }
-                this.status.setVisible(value.status() != null);
-            }
-            if (!isSelected && !cellHasFocus) {
-                final var defaultColor = MRColors.statusColor(value.status());
-                if (defaultColor != null) {
-                    this.setBackground(defaultColor);
-                }
-                if (WorkflowController.getInstance().getCompletionDraft(value.id()) != null) {
-                    this.setBackground(COLOR_MODIFIED.get());
-                }
-                if (WorkflowController.getInstance().getLockedTask(value.id()) != null) {
-                    this.setBackground(COLOR_LOCKED.get());
-                }
-            }
-            this.updateComponentColors();
-            final var bounds = this.getBounds();
-            this.setBounds(bounds.x, bounds.y, bounds.width, bounds.height * this.getComponentCount());
+        public void actionPerformed(ActionEvent event) {
+            releaseReservation();
         }
     }
 }

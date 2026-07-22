@@ -41,7 +41,7 @@ public final class IgnoreList {
      * @return the array to use
      */
     private static long[] convertList(List<String> ids) {
-        final var pattern = Pattern.compile("^\\d\\+$").asMatchPredicate();
+        final var pattern = Pattern.compile("^\\d+$").asMatchPredicate();
         return ids.stream().filter(pattern).mapToLong(Long::parseLong).toArray();
     }
 

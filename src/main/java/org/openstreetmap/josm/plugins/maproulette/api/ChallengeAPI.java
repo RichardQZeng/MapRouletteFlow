@@ -134,6 +134,21 @@ public final class ChallengeAPI {
     }
 
     /**
+     * Reserve at most one prioritized task. Supplying no proximity gives the normal priority-based random behavior.
+     *
+     * @param challengeId challenge to reserve from
+     * @param proximityTaskId optional completed task for nearby selection
+     * @return the reserved task, or {@code null} when no task is available
+     * @throws IOException if communication fails
+     */
+    @Nullable
+    public static Task prioritizedTask(long challengeId, @Nullable Long proximityTaskId) throws IOException {
+        final var tasks = taskCollectionEndpoints("/tasks/prioritizedTasks", challengeId, null, null, 1,
+                proximityTaskId == null ? 0 : proximityTaskId);
+        return tasks.length == 0 ? null : tasks[0];
+    }
+
+    /**
      * Common method for task collection endpoints
      *
      * @param challengeId  The challenge to get tasks for

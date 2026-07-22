@@ -157,6 +157,11 @@ public final class WorkflowController {
         return onEdt(() -> state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWork());
     }
 
+    /** Whether challenge metadata can safely replace the current challenge selection. */
+    public boolean canSelectChallenge() {
+        return onEdt(() -> state == State.CHALLENGE_IDLE && !hasPendingWork());
+    }
+
     /** Accept exactly one server-reserved candidate. */
     public void reserveCandidate(Task task) {
         Objects.requireNonNull(task);
