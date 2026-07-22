@@ -5,6 +5,8 @@ import java.util.Objects;
 
 import jakarta.annotation.Nonnull;
 
+import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
+
 /**
  * A class for storing MapRoulette configuration information
  *
@@ -49,6 +51,9 @@ public record MapRouletteConfig(@Nonnull String baseUrl) {
      * @param instance the new config instance to use
      */
     public static void setInstance(@Nonnull MapRouletteConfig instance) {
+        if (MapRouletteConfig.instance != null) {
+            AuthenticationManager.serverChanged(MapRouletteConfig.instance.baseUrl(), instance.baseUrl());
+        }
         MapRouletteConfig.instance = instance;
     }
 }

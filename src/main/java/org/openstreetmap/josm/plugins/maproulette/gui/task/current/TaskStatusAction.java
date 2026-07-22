@@ -36,11 +36,13 @@ import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.ChallengeCache;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
+import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.data.ApplyCooperativeChange;
 import org.openstreetmap.josm.plugins.maproulette.data.ApplyOscChange;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
+import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Shortcut;
@@ -100,6 +102,9 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
 
     @Override
     public void actionPerformed(ActionEvent e) {
+        if (!isAuthenticated()) {
+            return;
+        }
         final var selected = new ArrayList<>(
                 MainApplication.getMap().getToggleDialog(TaskListPanel.class).getSelected());
         final var task = this.currentTaskProvider.get();
@@ -228,7 +233,7 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
 
     @Override
     public void updateEnabledState() {
-        if (this.currentTaskProvider != null) {
+        if (this.currentTaskProvider != null && isAuthenticated()) {
             final var task = this.currentTaskProvider.get();
             if (task != null) {
                 // Disable buttons when the state has been modified
@@ -266,5 +271,10 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
             }
         }
         this.setEnabled(false);
+    }
+
+    private static boolean isAuthenticated() {
+        return MapRouletteConfig.getInstance() != null
+                && AuthenticationManager.isAuthenticated(MapRouletteConfig.getBaseUrl());
     }
 }

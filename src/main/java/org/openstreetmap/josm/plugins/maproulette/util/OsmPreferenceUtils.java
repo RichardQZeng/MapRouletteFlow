@@ -1,7 +1,6 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.plugins.maproulette.util;
 
-import static org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.getBaseUrl;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
 import java.util.ArrayList;
@@ -35,25 +34,24 @@ public final class OsmPreferenceUtils {
      * @return The key
      * @throws UnauthorizedException If the user is not logged in to either OSM through JOSM <i>or</i> has not logged in to MapRoulette.
      */
-    static String getMapRouletteApiKey() throws UnauthorizedException {
+    public static String getMapRouletteApiKey(String baseUrl, String osmPreferenceName) throws UnauthorizedException {
         final var user = UserIdentityManager.getInstance().getUserInfo();
         if (user == null) {
-            clearCachedKey();
+            clearCachedKey(baseUrl);
             throw new UnauthorizedException("User is not logged in");
         }
-        final var preferenceKey = "maproulette.openstreetmap." + getBaseUrl() + '.' + user.getId();
+        final var normalizedBaseUrl = AuthenticationManager.normalizeBaseUrl(baseUrl);
+        final var preferenceKey = cachePreferenceKey(normalizedBaseUrl, user.getId());
         final var possibleApiKey = Config.getPref().get(preferenceKey);
         if (!Utils.isStripEmpty(possibleApiKey) && !"Couldn't authenticate you".equals(possibleApiKey)) {
             return possibleApiKey;
         }
-        final var osmServerKey = Config.getPref().get("maproulette.openstreetmap" + getBaseUrl() + ".api_key",
-                "maproulette_apikey_v2");
         final var reader = new OsmServerUserPreferencesReader();
         final var monitor = new PleaseWaitProgressMonitor(tr("Fetching OpenStreetMap User Preferences"));
         final var userList = new ListProperty("maproulette.openstreetmap.users", Collections.emptyList());
         try {
             final var key = reader.fetchUserPreferences(monitor, tr("Getting MapRoulette API Key"))
-                    .getOrDefault(osmServerKey, null);
+                    .getOrDefault(osmPreferenceName, null);
             final String userId = String.valueOf(user.getId());
             List<String> userIds = new ArrayList<>(userList.get());
             if (!userIds.contains(userId)) {
@@ -72,12 +70,24 @@ public final class OsmPreferenceUtils {
     /**
      * Remove all cached keys (this can happen due to auth failure)
      */
-    static void clearCachedKey() {
+    static void clearCachedKey(String baseUrl) {
         final var userList = new ListProperty("maproulette.openstreetmap.users", Collections.emptyList());
-        // Right now JOSM doesn't support multiple users, so just wipe everything. If JOSM ever supports multiple users
         for (var userId : userList.get()) {
-            final var preferenceKey = "maproulette.openstreetmap." + getBaseUrl() + '.' + userId;
-            Config.getPref().put(preferenceKey, null);
+            Config.getPref().put(cachePreferenceKey(AuthenticationManager.normalizeBaseUrl(baseUrl), userId), null);
         }
+    }
+
+    static void clearCachedKey(String baseUrl, String rejectedKey) {
+        final var userList = new ListProperty("maproulette.openstreetmap.users", Collections.emptyList());
+        for (var userId : userList.get()) {
+            final var preferenceKey = cachePreferenceKey(AuthenticationManager.normalizeBaseUrl(baseUrl), userId);
+            if (rejectedKey.equals(Config.getPref().get(preferenceKey))) {
+                Config.getPref().put(preferenceKey, null);
+            }
+        }
+    }
+
+    private static String cachePreferenceKey(String baseUrl, Object userId) {
+        return "maproulette.openstreetmap." + baseUrl + '.' + userId;
     }
 }

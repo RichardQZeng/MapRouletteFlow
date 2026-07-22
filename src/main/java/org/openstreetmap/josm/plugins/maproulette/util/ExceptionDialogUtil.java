@@ -37,7 +37,7 @@ public final class ExceptionDialogUtil {
      */
     public static void explainException(Exception exception) {
         if (exception instanceof UnauthorizedException) {
-            OsmPreferenceUtils.clearCachedKey();
+            AuthenticationManager.clearCurrentCredential(getBaseUrl());
             final var message = UserIdentityManager.getInstance().isAnonymous()
                     ? tr("Please log in to OpenStreetMap in JOSM")
                     : tr("Please log in to the MapRoulette instance at least once: {0}\n NOTE: you may need to reset your MapRoulette API key",

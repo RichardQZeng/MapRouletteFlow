@@ -21,8 +21,10 @@ import org.openstreetmap.josm.data.osm.IPrimitive;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
+import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedObjects;
 import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClusteredPointLayer;
+import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.tools.ImageProvider;
 import org.openstreetmap.josm.tools.Shortcut;
@@ -58,6 +60,9 @@ final class LockUnlockTaskAction extends JosmAction {
 
     @Override
     public void actionPerformed(ActionEvent e) {
+        if (!isAuthenticated()) {
+            return;
+        }
         if (Boolean.TRUE.equals(getValue("lock"))) {
             lockTasks();
         } else {
@@ -151,7 +156,7 @@ final class LockUnlockTaskAction extends JosmAction {
 
     @Override
     protected void updateEnabledState() {
-        if (this.table != null && !this.table.getSelectionModel().isSelectionEmpty()) {
+        if (this.table != null && isAuthenticated() && !this.table.getSelectionModel().isSelectionEmpty()) {
             super.setEnabled(true);
             for (var i : this.table.getSelectedRows()) {
                 final var index = this.table.getRowSorter().convertRowIndexToModel(i);
@@ -171,5 +176,10 @@ final class LockUnlockTaskAction extends JosmAction {
         } else {
             super.setEnabled(false);
         }
+    }
+
+    private static boolean isAuthenticated() {
+        return MapRouletteConfig.getInstance() != null
+                && AuthenticationManager.isAuthenticated(MapRouletteConfig.getBaseUrl());
     }
 }

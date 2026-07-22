@@ -28,7 +28,7 @@ import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.tools.GBC;
 
 /**
- * Task list settings
+ * Exclusion settings
  */
 public class MapRouletteTaskListPreferences implements SubPreferenceSetting {
     private JTable ignoredTaskTable;
@@ -52,7 +52,7 @@ public class MapRouletteTaskListPreferences implements SubPreferenceSetting {
             ignoredChallengePanel.add(scrollChallengeTable, GBC.eol().fill(GBC.BOTH));
             pane.add(tr("Ignored Tasks"), ignoredTaskPanel);
             pane.add(tr("Ignored Challenges"), ignoredChallengePanel);
-            getTabPreferenceSetting(gui).addSubTab(this, tr("Task List"), pane, tr("MapRoulette Task List Settings"));
+            getTabPreferenceSetting(gui).addSubTab(this, tr("Exclusions"), pane, tr("MapRoulette Exclusion Settings"));
         } catch (IOException ioException) {
             ExceptionDialogUtil.explainException(ioException);
         }

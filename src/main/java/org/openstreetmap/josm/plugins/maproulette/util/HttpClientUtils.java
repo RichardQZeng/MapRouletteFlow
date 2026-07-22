@@ -50,6 +50,19 @@ public final class HttpClientUtils {
     }
 
     /**
+     * Create a GET request signed only with the supplied candidate key.
+     *
+     * @param url URL to retrieve
+     * @param apiKey candidate MapRoulette API key
+     * @return configured client
+     */
+    public static HttpClient getWithApiKey(String url, String apiKey) {
+        final var client = HttpClient.create(safeUrl(url, Collections.emptyMap()));
+        client.setHeader("apiKey", apiKey);
+        return client;
+    }
+
+    /**
      * Get the url in a safe manner
      *
      * @param url             The url to create
@@ -75,7 +88,8 @@ public final class HttpClientUtils {
      * @throws UnauthorizedException if the user isn't logged in or hasn't logged in to MapRoulette before
      */
     private static void sign(HttpClient client) throws UnauthorizedException {
-        client.setHeader("apiKey", OsmPreferenceUtils.getMapRouletteApiKey());
+        client.setHeader("apiKey", AuthenticationManager.getApiKey(
+                org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.getBaseUrl()));
     }
 
     /**
