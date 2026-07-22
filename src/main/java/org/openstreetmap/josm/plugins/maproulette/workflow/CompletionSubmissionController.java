@@ -83,9 +83,11 @@ public final class CompletionSubmissionController {
     private void submitPrepared(CompletionDraft draft, Integer changesetId, boolean reconcileBeforeUpdate)
             throws IOException {
         try {
-            var statusCommitted = false;
+            workflow.requireCurrentOwnerAuthenticated();
+            var statusCommitted = workflow.snapshot().completionStatusCommitted();
             if (reconcileBeforeUpdate) {
-                statusCommitted = gateway.hasTaskStatus(draft.task().id(), draft.result().actionId());
+                statusCommitted = statusCommitted
+                        || gateway.hasTaskStatus(draft.task().id(), draft.result().actionId());
             }
             if (!statusCommitted) {
                 try {
@@ -97,11 +99,13 @@ public final class CompletionSubmissionController {
                     }
                 }
             }
-            final var pending = new CompletionAuxiliaryRetry(draft.task().id(), draft.result().actionId(),
-                    draft.comment(), changesetId, changesetId != null, !Utils.isStripEmpty(draft.comment()));
-            workflow.statusCommitted(pending.isComplete() ? null : pending);
-            if (!pending.isComplete()) {
-                completeAuxiliary(pending);
+            if (!workflow.snapshot().completionStatusCommitted()) {
+                final var pending = new CompletionAuxiliaryRetry(draft.task().id(), draft.result().actionId(),
+                        draft.comment(), changesetId, changesetId != null, !Utils.isStripEmpty(draft.comment()));
+                workflow.statusCommitted(pending.isComplete() ? null : pending);
+                if (!pending.isComplete()) {
+                    completeAuxiliary(pending);
+                }
             }
         } catch (IOException | RuntimeException exception) {
             workflow.failRecoverably();
@@ -120,6 +124,7 @@ public final class CompletionSubmissionController {
         }
         workflow.retry();
         try {
+            workflow.requireCurrentOwnerAuthenticated();
             completeAuxiliary(retry);
         } catch (IOException | RuntimeException exception) {
             workflow.failRecoverably();
@@ -143,11 +148,13 @@ public final class CompletionSubmissionController {
     private void completeAuxiliary(CompletionAuxiliaryRetry initial) throws IOException {
         var pending = initial;
         if (pending.changesetPending()) {
+            workflow.requireCurrentOwnerAuthenticated();
             gateway.associateChangeset(pending.taskId(), pending.changesetId());
             pending = pending.changesetCompleted();
             workflow.updateAuxiliaryRetry(pending.isComplete() ? null : pending);
         }
         if (pending.commentPending()) {
+            workflow.requireCurrentOwnerAuthenticated();
             gateway.addComment(pending);
             pending = pending.commentCompleted();
             workflow.updateAuxiliaryRetry(pending.isComplete() ? null : pending);

@@ -102,29 +102,30 @@ public final class AuthenticationManager {
     }
 
     public static String getDirectApiKey(String baseUrl) {
-        final var normalized = normalizeBaseUrl(baseUrl);
+        final var normalized = directScope(baseUrl);
         final var key = SESSION_DIRECT_KEYS.computeIfAbsent(normalized,
                 scopedUrl -> Config.getPref().get(DIRECT_PREFIX + scopedUrl + ".api_key"));
         return Utils.isStripEmpty(key) ? null : key;
     }
 
     public static boolean isDirectKeyRemembered(String baseUrl) {
-        return !Utils.isStripEmpty(Config.getPref().get(DIRECT_PREFIX + normalizeBaseUrl(baseUrl) + ".api_key"));
+        return !Utils.isStripEmpty(Config.getPref().get(DIRECT_PREFIX + directScope(baseUrl) + ".api_key"));
     }
 
     public static void setDirectApiKey(String baseUrl, String apiKey, boolean remember) {
         final var normalized = normalizeBaseUrl(baseUrl);
-        final var preferenceKey = DIRECT_PREFIX + normalized + ".api_key";
+        final var scope = directScope(normalized);
+        final var preferenceKey = DIRECT_PREFIX + scope + ".api_key";
         final var normalizedKey = Utils.isStripEmpty(apiKey) ? null : apiKey.strip();
         if (java.util.Objects.equals(normalizedKey, getDirectApiKey(normalized))
                 && remember == isDirectKeyRemembered(normalized)) {
             return;
         }
         if (Utils.isStripEmpty(apiKey)) {
-            SESSION_DIRECT_KEYS.remove(normalized);
+            SESSION_DIRECT_KEYS.remove(scope);
             Config.getPref().put(preferenceKey, null);
         } else {
-            SESSION_DIRECT_KEYS.put(normalized, normalizedKey);
+            SESSION_DIRECT_KEYS.put(scope, normalizedKey);
             Config.getPref().put(preferenceKey, remember ? normalizedKey : null);
         }
         clearActiveAuthentication();
@@ -174,10 +175,11 @@ public final class AuthenticationManager {
 
     public static void handleUnauthorized(String baseUrl, String rejectedKey) {
         final var normalized = normalizeBaseUrl(baseUrl);
-        if (rejectedKey.equals(SESSION_DIRECT_KEYS.get(normalized))
-                || rejectedKey.equals(Config.getPref().get(DIRECT_PREFIX + normalized + ".api_key"))) {
-            SESSION_DIRECT_KEYS.remove(normalized);
-            Config.getPref().put(DIRECT_PREFIX + normalized + ".api_key", null);
+        final var directScope = directScope(normalized);
+        if (rejectedKey.equals(SESSION_DIRECT_KEYS.get(directScope))
+                || rejectedKey.equals(Config.getPref().get(DIRECT_PREFIX + directScope + ".api_key"))) {
+            SESSION_DIRECT_KEYS.remove(directScope);
+            Config.getPref().put(DIRECT_PREFIX + directScope + ".api_key", null);
         }
         OsmPreferenceUtils.clearCachedKey(normalized, rejectedKey);
         clearActiveAuthentication();
@@ -186,8 +188,9 @@ public final class AuthenticationManager {
     public static void clearCurrentCredential(String baseUrl) {
         final var normalized = normalizeBaseUrl(baseUrl);
         if (getMode(normalized) == AuthenticationMode.DIRECT) {
-            SESSION_DIRECT_KEYS.remove(normalized);
-            Config.getPref().put(DIRECT_PREFIX + normalized + ".api_key", null);
+            final var directScope = directScope(normalized);
+            SESSION_DIRECT_KEYS.remove(directScope);
+            Config.getPref().put(DIRECT_PREFIX + directScope + ".api_key", null);
         } else {
             OsmPreferenceUtils.clearCachedKey(normalized);
         }
@@ -200,11 +203,12 @@ public final class AuthenticationManager {
     }
 
     private static long currentOsmUserId(AuthenticationMode mode) {
-        if (mode == AuthenticationMode.DIRECT) {
-            return -1;
-        }
         final var user = UserIdentityManager.getInstance().getUserInfo();
         return user == null ? -1 : user.getId();
+    }
+
+    private static String directScope(String baseUrl) {
+        return normalizeBaseUrl(baseUrl) + ".osm-user-" + currentOsmUserId(AuthenticationMode.DIRECT);
     }
 
     private static String fingerprint(String apiKey) {

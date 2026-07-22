@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiPredicate;
 
 import javax.swing.JOptionPane;
 
@@ -47,31 +48,53 @@ public class ApplyCooperativeChange {
      */
     @Nullable
     public Command generateCommand(@Nonnull DataSet ds) {
+        return generateCommand(ds, (update, key) -> true);
+    }
+
+    /** Generate a command containing only tag changes retained by the user. */
+    @Nullable
+    public Command generateCommand(@Nonnull DataSet ds, BiPredicate<org.openstreetmap.josm.plugins.maproulette.api.model.ElementUpdate, String> keep) {
         Objects.requireNonNull(ds, "ds");
+        Objects.requireNonNull(keep, "keep");
         if (this.change.creates().length > 0) {
-            throw new IllegalArgumentException(
-                    "We don't currently handle cooperative challenge creates: " + this.change);
+            return null;
         }
         ConditionalOptionPaneUtil.startBulkOperation(BULK_OPERATION_VERSION_MISMATCH);
         final List<Command> commands = new ArrayList<>();
-        for (var update : this.change.updates()) {
-            final var primitive = ds.getPrimitiveById(update.osmId(), update.osmType());
-            if (update.version() < 0 || primitive.getVersion() == update.version()
-                    || ConditionalOptionPaneUtil.showConfirmationDialog(BULK_OPERATION_VERSION_MISMATCH,
-                            MainApplication.getMainFrame(),
-                            tr("The {0} {1} (v{2}) has changed since the challenge was created.<br>Continue?",
-                                    update.osmType().getAPIName(), update.osmId(), update.version()),
-                            tr("Cooperative Challenge: Mismatched version types"), JOptionPane.YES_NO_OPTION,
-                            JOptionPane.WARNING_MESSAGE, JOptionPane.YES_OPTION)) {
-                final var tagMap = new HashMap<>(update.tags().updates());
-                for (var delete : update.tags().deletes()) {
-                    tagMap.put(delete, null);
+        try {
+            for (var update : this.change.updates()) {
+                final var primitive = ds.getPrimitiveById(update.osmId(), update.osmType());
+                if (primitive == null) {
+                    return null;
                 }
-                commands.add(new ChangePropertyCommand(ds, Collections.singleton(primitive), tagMap));
+                if (update.version() >= 0 && primitive.getVersion() != update.version()
+                        && !ConditionalOptionPaneUtil.showConfirmationDialog(BULK_OPERATION_VERSION_MISMATCH,
+                                MainApplication.getMainFrame(),
+                                tr("The {0} {1} (v{2}) has changed since the challenge was created.<br>Continue?",
+                                        update.osmType().getAPIName(), update.osmId(), update.version()),
+                                tr("Cooperative Challenge: Mismatched version types"), JOptionPane.YES_NO_OPTION,
+                                JOptionPane.WARNING_MESSAGE, JOptionPane.YES_OPTION)) {
+                    return null;
+                }
+                final var tagMap = new HashMap<String, String>();
+                update.tags().updates().forEach((key, value) -> {
+                    if (keep.test(update, key)) {
+                        tagMap.put(key, value);
+                    }
+                });
+                for (var delete : update.tags().deletes()) {
+                    if (keep.test(update, delete)) {
+                        tagMap.put(delete, null);
+                    }
+                }
+                if (!tagMap.isEmpty()) {
+                    commands.add(new ChangePropertyCommand(ds, Collections.singleton(primitive), tagMap));
+                }
             }
+        } finally {
+            ConditionalOptionPaneUtil.endBulkOperation(BULK_OPERATION_VERSION_MISMATCH);
         }
-        ConditionalOptionPaneUtil.endBulkOperation(BULK_OPERATION_VERSION_MISMATCH);
-        return SequenceCommand.wrapIfNeeded(tr("MapRoulette Cooperative Challenge"), commands);
+        return commands.isEmpty() ? null : SequenceCommand.wrapIfNeeded(tr("MapRoulette Cooperative Challenge"), commands);
     }
 
     @Override

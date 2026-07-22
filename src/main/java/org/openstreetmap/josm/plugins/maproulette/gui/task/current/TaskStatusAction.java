@@ -8,6 +8,7 @@ import java.awt.event.KeyEvent;
 import java.io.Serial;
 import java.util.Locale;
 import java.util.function.Supplier;
+import java.util.function.Predicate;
 
 import javax.swing.text.html.HTMLDocument;
 
@@ -30,12 +31,13 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
     private final CompletionResult result;
     private final Supplier<Task> currentTaskProvider;
     private final Supplier<HTMLDocument> currentDocumentProvider;
+    private final Predicate<Task> cooperativePreparation;
     private final WorkflowController workflow = WorkflowController.getInstance();
     private final CompletionSubmissionController submissions = new CompletionSubmissionController(workflow,
             new ApiTaskCompletionGateway());
 
     TaskStatusAction(CompletionResult result, Supplier<Task> currentTaskProvider,
-            Supplier<HTMLDocument> currentDocumentProvider) {
+            Supplier<HTMLDocument> currentDocumentProvider, Predicate<Task> cooperativePreparation) {
         super(result.label(), icon(result), result.label(),
                 Shortcut.registerShortcut("maproulette:" + result.name().toLowerCase(Locale.ENGLISH),
                         tr("MapRoulette: {0}", result.label()), KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
@@ -43,6 +45,7 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
         this.result = result;
         this.currentTaskProvider = currentTaskProvider;
         this.currentDocumentProvider = currentDocumentProvider;
+        this.cooperativePreparation = cooperativePreparation;
     }
 
     private static String icon(CompletionResult result) {
@@ -83,13 +86,14 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
                         }
                     }
                     updateEnabledState();
-                });
+                }, () -> cooperativePreparation.test(task));
         dialog.setVisible(true);
     }
 
     @Override
     public void updateEnabledState() {
-        if (currentTaskProvider == null || !isAuthenticated() || currentTaskProvider.get() == null) {
+        if (currentTaskProvider == null || workflow.snapshot().suspended() || !isAuthenticated()
+                || currentTaskProvider.get() == null) {
             setEnabled(false);
             return;
         }
@@ -103,7 +107,10 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
     }
 
     private static boolean isAuthenticated() {
-        return MapRouletteConfig.getInstance() != null
-                && AuthenticationManager.isAuthenticated(MapRouletteConfig.getBaseUrl());
+        if (MapRouletteConfig.getInstance() == null) {
+            return false;
+        }
+        final var account = AuthenticationManager.getAuthenticatedUser(MapRouletteConfig.getBaseUrl());
+        return account != null && WorkflowController.getInstance().isOwnedBy(MapRouletteConfig.getBaseUrl(), account);
     }
 }

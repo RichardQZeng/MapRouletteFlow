@@ -11,16 +11,15 @@ import java.awt.Graphics2D;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import javax.swing.Action;
@@ -49,7 +48,6 @@ import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.plugins.maproulette.api.MRColors;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Identifier;
-import org.openstreetmap.josm.plugins.maproulette.api.model.Locatable;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
 import org.openstreetmap.josm.plugins.maproulette.api_caching.TaskCache;
@@ -128,14 +126,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
         super(tr("MapRoulette Task Layer"));
         this.pointBucket.addAll(points);
         this.bounds = TaskPreviewBounds.forTasks(points).orElse(bounds);
-        this.taskUpdated = tasks -> {
-            final var taskIds = tasks.keySet().stream().mapToLong(Long::longValue).sorted().toArray();
-            final Predicate<Locatable> filter = point -> Arrays.binarySearch(taskIds, point.id()) >= 0;
-            this.pointBucket.removeIf(filter);
-            this.pointMap.removeIf(filter);
-            this.refreshTasks(tasks);
-            this.updatedDataListeners.fireEvent(listener -> listener.accept(Collections.emptyMap()));
-        };
+        this.taskUpdated = this::refreshTasks;
         LateUploadHook.addUploadListener(this.taskUpdated);
         this.pointMap.addAll(points);
     }
@@ -145,7 +136,14 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
      *
      * @param tcMap The map of task id to point
      */
-    public synchronized void refreshTasks(Map<Long, ? extends TaskClusteredPoint> tcMap) {
+    public void refreshTasks(Map<Long, ? extends TaskClusteredPoint> tcMap) {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                refreshTasks(tcMap);
+                return null;
+            });
+            return;
+        }
         final var current = this.pointMap.stream().collect(Collectors.toMap(Identifier::id, c -> c));
         for (var entry : tcMap.entrySet()) {
             if (current.containsKey(entry.getKey())) {
@@ -401,12 +399,19 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
      *
      * @return The tasks for this layer
      */
-    public Collection<TaskClusteredPoint> getTasks() {
-        return Collections.unmodifiableCollection(this.pointBucket);
+    public synchronized Collection<TaskClusteredPoint> getTasks() {
+        return List.copyOf(this.pointBucket);
     }
 
     /** Replace layer content with the current single-task preview. */
-    public synchronized void replaceTasks(Collection<? extends TaskClusteredPoint> tasks) {
+    public void replaceTasks(Collection<? extends TaskClusteredPoint> tasks) {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                replaceTasks(tasks);
+                return null;
+            });
+            return;
+        }
         this.pointBucket.clear();
         this.pointMap.clear();
         this.selected.clear();
@@ -420,7 +425,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
     }
 
     /** Current dynamic data bounds, primarily for autoscale and tests. */
-    public Bounds getDataBounds() {
+    public synchronized Bounds getDataBounds() {
         return bounds;
     }
 

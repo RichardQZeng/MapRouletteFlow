@@ -42,6 +42,11 @@ public class TagChangeTable extends JTable {
         this.setDefaultRenderer(String.class, new CellRenderer());
     }
 
+    /** Whether the user kept the change at the given row. */
+    public boolean isKept(int row) {
+        return row >= 0 && row < getRowCount() && Boolean.TRUE.equals(getValueAt(row, 3));
+    }
+
     /**
      * A cell renderer for tag changes
      */
@@ -141,7 +146,7 @@ public class TagChangeTable extends JTable {
         public boolean isCellEditable(int rowIndex, int columnIndex) {
             return switch (columnIndex) {
             case 0, 1, 2 -> false;
-            case 3 -> true;
+            case 3 -> isEditable;
             default -> super.isCellEditable(rowIndex, columnIndex);
             };
         }
@@ -160,7 +165,7 @@ public class TagChangeTable extends JTable {
         @Override
         public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             super.setValueAt(aValue, rowIndex, columnIndex);
-            if ((rowIndex <= getRowCount() && rowIndex >= 0 && columnIndex >= 0 && columnIndex <= getColumnCount())) {
+            if (rowIndex >= 0 && columnIndex >= 0 && columnIndex < getColumnCount()) {
                 final var isString = aValue instanceof String || (aValue == null && rowIndex < getRowCount());
                 expandArrays(rowIndex + 1);
                 if (columnIndex == 0 && isString) {

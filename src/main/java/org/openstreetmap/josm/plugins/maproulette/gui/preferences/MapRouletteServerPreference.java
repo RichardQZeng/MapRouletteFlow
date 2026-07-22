@@ -17,6 +17,7 @@ import javax.swing.JRadioButton;
 import javax.swing.SwingWorker;
 
 import org.openstreetmap.josm.data.preferences.StringProperty;
+import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.preferences.PreferenceTabbedPane;
 import org.openstreetmap.josm.gui.preferences.SubPreferenceSetting;
 import org.openstreetmap.josm.gui.preferences.TabPreferenceSetting;
@@ -56,6 +57,7 @@ public class MapRouletteServerPreference implements SubPreferenceSetting {
     private String loadedBaseUrl;
     private String loadedDirectKey;
     private String loadedOsmPreferenceName;
+    private boolean loadedRememberKey;
     private boolean guiInitialized;
 
     @Override
@@ -88,7 +90,8 @@ public class MapRouletteServerPreference implements SubPreferenceSetting {
         if (loadedDirectKey != null) {
             directApiKey.setText(loadedDirectKey);
         }
-        rememberKey.setSelected(AuthenticationManager.isDirectKeyRemembered(MAPROULETTE_URL.get()));
+        loadedRememberKey = AuthenticationManager.isDirectKeyRemembered(MAPROULETTE_URL.get());
+        rememberKey.setSelected(loadedRememberKey);
         directPanel.add(new JLabel(tr("API key:")), GBC.std().anchor(GBC.LINE_START));
         directPanel.add(directApiKey, GBC.eol().fill(GBC.HORIZONTAL));
         directPanel.add(rememberKey, GBC.eol().insets(0, 4, 0, 0));
@@ -201,18 +204,27 @@ public class MapRouletteServerPreference implements SubPreferenceSetting {
         }
         final var newApiUrl = Utils.isStripEmpty(apiUrl.getText()) ? MAPROULETTE_URL.get()
                 : AuthenticationManager.normalizeBaseUrl(apiUrl.getText());
-        if (newApiUrl.equals(MAPROULETTE_URL.getDefaultValue())) {
-            MAPROULETTE_URL.remove();
-        } else {
-            MAPROULETTE_URL.put(newApiUrl);
-        }
-
         final var mode = selectedMode();
         final var password = directApiKey.getPassword();
         final var directKey = new String(password).strip();
         final var normalizedDirectKey = directKey.isEmpty() ? null : directKey;
         Arrays.fill(password, '\0');
         final var serverChanged = !newApiUrl.equals(loadedBaseUrl);
+        final var workflow = WorkflowController.getInstance();
+        final var authenticationChanged = serverChanged || mode != AuthenticationManager.getMode(loadedBaseUrl)
+                || !Objects.equals(osmPreferenceName.getText().strip(), loadedOsmPreferenceName)
+                || !Objects.equals(normalizedDirectKey, loadedDirectKey) || rememberKey.isSelected() != loadedRememberKey;
+        if (workflow.hasPendingWork() && authenticationChanged) {
+            javax.swing.JOptionPane.showMessageDialog(MainApplication.getMainFrame(),
+                    tr("Release or complete the current MapRoulette task before changing accounts or servers."),
+                    tr("MapRoulette task is active"), javax.swing.JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        if (newApiUrl.equals(MAPROULETTE_URL.getDefaultValue())) {
+            MAPROULETTE_URL.remove();
+        } else {
+            MAPROULETTE_URL.put(newApiUrl);
+        }
         final var testedNewServer = testedAccount != null && newApiUrl.equals(testedBaseUrl);
         if (!serverChanged || !Objects.equals(osmPreferenceName.getText().strip(), loadedOsmPreferenceName)
                 || testedNewServer && testedMode == AuthenticationMode.AUTOMATIC) {
@@ -228,9 +240,22 @@ public class MapRouletteServerPreference implements SubPreferenceSetting {
         final var candidateKey = mode == AuthenticationMode.DIRECT ? directKey : testedApiKey;
         if (testedAccount != null && newApiUrl.equals(testedBaseUrl) && mode == testedMode
                 && testedApiKey.equals(candidateKey)) {
+            if (workflow.hasPendingWork() && !workflow.isOwnedBy(newApiUrl, testedAccount)) {
+                javax.swing.JOptionPane.showMessageDialog(MainApplication.getMainFrame(),
+                        tr("The current task belongs to another MapRoulette account."),
+                        tr("MapRoulette task is active"), javax.swing.JOptionPane.WARNING_MESSAGE);
+                return false;
+            }
             AuthenticationManager.setAuthenticated(newApiUrl, mode, candidateKey, testedAccount);
-            WorkflowController.getInstance().connect();
-        } else {
+            workflow.authenticatedAs(newApiUrl, testedAccount);
+            if (workflow.snapshot().suspended()
+                    && !org.openstreetmap.josm.plugins.maproulette.MapRoulette.isCleanupInProgress()) {
+                workflow.resume();
+            }
+            if (MainApplication.getMap() != null) {
+                org.openstreetmap.josm.plugins.maproulette.MapRoulette.restoreDraft(testedAccount);
+            }
+        } else if (!workflow.hasPendingWork()) {
             AuthenticationManager.clearActiveAuthentication();
         }
         return false;

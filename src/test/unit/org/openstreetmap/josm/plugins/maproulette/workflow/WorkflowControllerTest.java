@@ -247,6 +247,36 @@ class WorkflowControllerTest {
                 .noneMatch(name -> name.contains("credential") || name.contains("key") || name.contains("token")));
     }
 
+    @Test
+    void activeWorkflowRemainsBoundToItsOriginalNonSecretAccount() {
+        final var original = new org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser(1, 10,
+                "original", 0);
+        final var replacement = new org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser(2, 20,
+                "replacement", 0);
+        workflow.authenticatedAs("https://maproulette.example/api/v2", original);
+        workflow.selectChallenge(challenge(10));
+        workflow.reserveCandidate(task(100, 10));
+
+        workflow.authenticatedAs("https://maproulette.example/api/v2", replacement);
+
+        assertTrue(workflow.isOwnedBy("https://maproulette.example/api/v2", original));
+        assertFalse(workflow.isOwnedBy("https://maproulette.example/api/v2", replacement));
+        assertEquals(1, workflow.snapshot().accountOwner().mapRouletteUserId());
+    }
+
+    @Test
+    void idleWorkflowCanSwitchAuthenticatedOwner() {
+        final var first = new org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser(1, 10, "first",
+                0);
+        final var second = new org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser(2, 20, "second",
+                0);
+        workflow.authenticatedAs("https://maproulette.example/api/v2", first);
+
+        workflow.authenticatedAs("https://maproulette.example/api/v2", second);
+
+        assertTrue(workflow.isOwnedBy("https://maproulette.example/api/v2", second));
+    }
+
     private void failAndRetry(State expected) {
         assertEquals(expected, workflow.state());
         final var before = workflow.snapshot();

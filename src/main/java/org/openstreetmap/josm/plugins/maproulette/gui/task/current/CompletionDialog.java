@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 
 import javax.swing.ButtonGroup;
 import javax.swing.ButtonModel;
@@ -66,6 +67,7 @@ final class CompletionDialog extends JDialog {
     private final Challenge challenge;
     private final CompletionResult result;
     private final Consumer<Boolean> closed;
+    private final BooleanSupplier cooperativePreparation;
     private final JosmTextArea comment = new JosmTextArea(5, 42);
     private final JLabel commentCount = new JLabel();
     private final HtmlPanel preview = new HtmlPanel();
@@ -80,7 +82,8 @@ final class CompletionDialog extends JDialog {
     private boolean busy;
 
     CompletionDialog(Window owner, WorkflowController workflow, CompletionSubmissionController submissions, Task task,
-            Challenge challenge, CompletionResult result, HTMLDocument currentInstructions, Consumer<Boolean> closed) {
+            Challenge challenge, CompletionResult result, HTMLDocument currentInstructions, Consumer<Boolean> closed,
+            BooleanSupplier cooperativePreparation) {
         super(owner, tr("Complete MapRoulette Task"), Dialog.ModalityType.APPLICATION_MODAL);
         this.workflow = workflow;
         this.submissions = submissions;
@@ -88,6 +91,7 @@ final class CompletionDialog extends JDialog {
         this.challenge = challenge;
         this.result = result;
         this.closed = closed;
+        this.cooperativePreparation = cooperativePreparation;
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
 
         final var prior = workflow.snapshot().completionDraft();
@@ -177,6 +181,9 @@ final class CompletionDialog extends JDialog {
         }
         MapRouletteTaskPreference.setNextMode(draft.task().parentId(), draft.nextMode());
         if (result == CompletionResult.FIXED) {
+            if (workflow.snapshot().completionDraft() == null && !cooperativePreparation.getAsBoolean()) {
+                return;
+            }
             submissions.preserveFixedDraft(draft);
             final var uploads = FixedUploadCoordinator.getInstance();
             if (!uploads.hasPendingEdits()) {

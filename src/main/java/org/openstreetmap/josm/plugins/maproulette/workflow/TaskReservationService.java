@@ -96,6 +96,7 @@ public final class TaskReservationService {
             if (!guard.getAsBoolean()) {
                 throw new IllegalStateException("Pending MapRoulette work blocks candidate replacement");
             }
+            workflow.requireCurrentOwnerAuthenticated();
             final var task = api.prioritizedTask(challengeId, proximity);
             if (task == null) {
                 return new Result(Status.EMPTY, null);

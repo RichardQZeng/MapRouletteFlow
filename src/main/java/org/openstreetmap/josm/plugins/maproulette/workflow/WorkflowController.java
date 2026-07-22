@@ -16,8 +16,10 @@ import javax.swing.SwingUtilities;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
+import org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser;
 import org.openstreetmap.josm.plugins.maproulette.gui.ModifiedTask;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
+import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.tools.Logging;
 
 import jakarta.annotation.Nullable;
@@ -59,6 +61,9 @@ public final class WorkflowController {
      * @param completionChangesetId correlated OSM changeset retained until Fixed completion finishes
      * @param completedTaskId most recently completed task, retained for Nearby reservation
      * @param reservationStatus latest candidate outcome for panel messaging
+     * @param accountOwner non-secret account identity that owns pending work
+     * @param completionStatusCommitted whether the status commit point has already passed
+     * @param suspended whether transient task operations are paused during map-frame cleanup
      * @param lockedTasks compatibility view of all tasks locked by the existing UI
      * @param completionDrafts compatibility view of all drafts created by the existing UI
      */
@@ -67,7 +72,17 @@ public final class WorkflowController {
                             @Nullable OsmDataLayer editLayer, @Nullable CompletionAuxiliaryRetry auxiliaryRetry,
                              @Nullable Integer completionChangesetId, @Nullable Long completedTaskId,
                              @Nullable TaskReservationService.Status reservationStatus,
-                            List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
+                              @Nullable AccountOwner accountOwner,
+                              boolean completionStatusCommitted,
+                              boolean suspended,
+                              List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
+    }
+
+    /** Non-secret identity used to prevent task completion under a replacement account. */
+    public record AccountOwner(String baseUrl, long mapRouletteUserId, long osmUserId) {
+        public AccountOwner {
+            baseUrl = AuthenticationManager.normalizeBaseUrl(baseUrl);
+        }
     }
 
     private static final WorkflowController INSTANCE = new WorkflowController();
@@ -85,6 +100,9 @@ public final class WorkflowController {
     private Integer completionChangesetId;
     private Long completedTaskId;
     private TaskReservationService.Status reservationStatus;
+    private AccountOwner accountOwner;
+    private boolean completionStatusCommitted;
+    private boolean suspended;
     private NextMode nextMode = NextMode.RANDOM;
     private OsmDataLayer editLayer;
     private Runnable reservationRefreshCleanup;
@@ -124,6 +142,45 @@ public final class WorkflowController {
         });
     }
 
+    /** Bind idle work to an authenticated account without replacing ownership of pending work. */
+    public void authenticatedAs(String baseUrl, AuthenticatedUser user) {
+        Objects.requireNonNull(baseUrl);
+        Objects.requireNonNull(user);
+        final var candidate = new AccountOwner(baseUrl, user.id(), user.osmId());
+        mutate(() -> {
+            if (!hasPendingWorkOnEdt() || accountOwner == null || accountOwner.equals(candidate)) {
+                accountOwner = candidate;
+                if (state == State.DISCONNECTED) {
+                    transition(State.CHALLENGE_IDLE);
+                }
+            }
+        });
+    }
+
+    public boolean isOwnedBy(String baseUrl, AuthenticatedUser user) {
+        if (user == null) {
+            return false;
+        }
+        final var candidate = new AccountOwner(baseUrl, user.id(), user.osmId());
+        return onEdt(() -> accountOwner != null && accountOwner.equals(candidate));
+    }
+
+    public boolean isCurrentOwnerAuthenticated() {
+        if (org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.getInstance() == null) {
+            return false;
+        }
+        final var baseUrl = org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.getBaseUrl();
+        final var user = org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager
+                .getAuthenticatedUser(baseUrl);
+        return isOwnedBy(baseUrl, user);
+    }
+
+    public void requireCurrentOwnerAuthenticated() {
+        if (snapshot().accountOwner() != null && !isCurrentOwnerAuthenticated()) {
+            throw new IllegalStateException("The MapRoulette account that owns this task is not authenticated");
+        }
+    }
+
     /** Leave an idle authenticated workflow. Pending work must be explicitly cleaned up instead. */
     public void disconnect() {
         mutate(() -> {
@@ -132,6 +189,7 @@ public final class WorkflowController {
             activeChallenge = null;
             completedTaskId = null;
             reservationStatus = null;
+            accountOwner = null;
             transition(State.DISCONNECTED);
         });
     }
@@ -172,7 +230,7 @@ public final class WorkflowController {
      * @return {@code true} only when no local lock or draft can be discarded
      */
     public boolean canRequestCandidate() {
-        return onEdt(() -> state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWork());
+        return onEdt(() -> state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWorkOnEdt());
     }
 
     /** Whether a status-committed task can safely advance to one next reservation. */
@@ -185,7 +243,7 @@ public final class WorkflowController {
 
     /** Whether challenge metadata can safely replace the current challenge selection. */
     public boolean canSelectChallenge() {
-        return onEdt(() -> state == State.CHALLENGE_IDLE && !hasPendingWork());
+        return onEdt(() -> state == State.CHALLENGE_IDLE && !hasPendingWorkOnEdt());
     }
 
     /** Accept exactly one server-reserved candidate. */
@@ -251,6 +309,7 @@ public final class WorkflowController {
                 throw new IllegalStateException("A completion draft is already pending");
             }
             completionDraft = draft;
+            completionStatusCommitted = false;
             transition(State.COMPLETION_DRAFT);
         });
     }
@@ -316,6 +375,7 @@ public final class WorkflowController {
             }
             lockedTasks.remove(activeTask.id());
             auxiliaryRetry = retry;
+            completionStatusCommitted = true;
         });
     }
 
@@ -458,10 +518,13 @@ public final class WorkflowController {
             completionDraft = null;
             auxiliaryRetry = null;
             completionChangesetId = null;
+            completionStatusCommitted = false;
             completedTaskId = null;
             reservationStatus = null;
+            accountOwner = null;
             editLayer = null;
             recoveryState = null;
+            suspended = false;
             state = State.DISCONNECTED;
         });
     }
@@ -469,6 +532,52 @@ public final class WorkflowController {
     public void setNextMode(NextMode mode) {
         Objects.requireNonNull(mode);
         mutate(() -> nextMode = mode);
+    }
+
+    /** Restore a persisted draft after its task and challenge are fetched under the original account. */
+    public void restoreDraft(WorkflowDraftStore.StoredDraft stored, Challenge challenge, Task task,
+            @Nullable OsmDataLayer layer) {
+        Objects.requireNonNull(stored);
+        Objects.requireNonNull(challenge);
+        Objects.requireNonNull(task);
+        mutate(() -> {
+            if (state != State.DISCONNECTED && state != State.CHALLENGE_IDLE || hasPendingWorkOnEdt()) {
+                throw new IllegalStateException("Workflow recovery requires an idle controller");
+            }
+            if (challenge.id() != stored.challengeId() || task.id() != stored.taskId()
+                    || task.parentId() != challenge.id()) {
+                throw new IllegalArgumentException("Recovered challenge or task does not match the stored draft");
+            }
+            accountOwner = stored.owner();
+            activeChallenge = challenge;
+            activeTask = task;
+            completionDraft = stored.toCompletionDraft(task);
+            auxiliaryRetry = stored.auxiliaryRetry();
+            completionChangesetId = stored.changesetId();
+            completionStatusCommitted = stored.statusCommitted();
+            nextMode = stored.nextMode();
+            editLayer = layer;
+            lockedTasks.clear();
+            if (!stored.statusCommitted()) {
+                lockedTasks.put(task.id(), task);
+            }
+            recoveryState = completionStatusCommitted ? State.SUBMITTING : null;
+            suspended = false;
+            state = completionStatusCommitted ? State.RECOVERABLE_ERROR : State.COMPLETION_DRAFT;
+        });
+    }
+
+    /** Stop transient workers and listeners while retaining task ownership for a later safe release. */
+    public void suspend() {
+        mutate(() -> {
+            cleanupAllHandles();
+            suspended = true;
+        });
+    }
+
+    /** Resume user operations after cleanup could not safely release retained work. */
+    public void resume() {
+        mutate(() -> suspended = false);
     }
 
     // Compatibility collection operations used while the existing multi-task UI is migrated.
@@ -522,23 +631,28 @@ public final class WorkflowController {
         completionDraft = null;
         auxiliaryRetry = null;
         completionChangesetId = null;
+        completionStatusCommitted = false;
         editLayer = null;
         recoveryState = null;
     }
 
     private void requireNoPendingWork() {
-        if (hasPendingWork()) {
+        if (hasPendingWorkOnEdt()) {
             throw new IllegalStateException("Pending MapRoulette work must be resolved first");
         }
     }
 
-    private boolean hasPendingWork() {
+    public boolean hasPendingWork() {
+        return onEdt(this::hasPendingWorkOnEdt);
+    }
+
+    private boolean hasPendingWorkOnEdt() {
         return reservedTask != null || activeTask != null || completionDraft != null || !lockedTasks.isEmpty()
                 || !completionDrafts.isEmpty();
     }
 
     private boolean canRequestCandidateOnEdt() {
-        return state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWork();
+        return state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWorkOnEdt();
     }
 
     private void requireReservedTask() {
@@ -603,6 +717,7 @@ public final class WorkflowController {
     private Snapshot snapshotOnEdt() {
         return new Snapshot(state, activeChallenge, reservedTask, activeTask, completionDraft, nextMode, editLayer,
                 auxiliaryRetry, completionChangesetId, completedTaskId, reservationStatus,
+                accountOwner, completionStatusCommitted, suspended,
                 List.copyOf(lockedTasks.values()),
                 List.copyOf(completionDrafts.values()));
     }
@@ -620,6 +735,7 @@ public final class WorkflowController {
             final var result = mutation.call();
             final var after = snapshotOnEdt();
             if (!before.equals(after)) {
+                WorkflowDraftStore.update(before, after);
                 listeners.firePropertyChange(SNAPSHOT_PROPERTY, before, after);
             }
             return result;

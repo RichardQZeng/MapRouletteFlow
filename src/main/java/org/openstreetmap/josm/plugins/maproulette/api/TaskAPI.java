@@ -127,6 +127,16 @@ public final class TaskAPI {
      */
     public static Task start(long task) throws IOException {
         final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + task + "/start");
+        return parseTask(client);
+    }
+
+    /** Start a task using a credential already validated for the supplied server. */
+    public static Task start(long task, String baseUrl, String apiKey) throws IOException {
+        final var client = HttpClientUtils.getWithApiKey(baseUrl + TASK + "/" + task + "/start", apiKey);
+        return parseTask(client);
+    }
+
+    private static Task parseTask(org.openstreetmap.josm.tools.HttpClient client) throws IOException {
         try (var inputstream = client.connect().getContent()) {
             return (Task) TaskParser.parseTask(inputstream);
         } finally {
@@ -143,11 +153,13 @@ public final class TaskAPI {
      */
     public static Task release(long task) throws IOException {
         final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + task + "/release");
-        try (var inputstream = client.connect().getContent()) {
-            return (Task) TaskParser.parseTask(inputstream);
-        } finally {
-            client.disconnect();
-        }
+        return parseTask(client);
+    }
+
+    /** Release a task using the same validated credential that acquired its recovery lock. */
+    public static Task release(long task, String baseUrl, String apiKey) throws IOException {
+        final var client = HttpClientUtils.getWithApiKey(baseUrl + TASK + "/" + task + "/release", apiKey);
+        return parseTask(client);
     }
 
     /**

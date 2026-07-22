@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.Supplier;
+import java.util.HashMap;
 
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.ButtonModel;
@@ -32,13 +33,17 @@ import javax.swing.text.html.Option;
 
 import org.openstreetmap.josm.actions.AutoScaleAction;
 import org.openstreetmap.josm.actions.JosmAction;
-import org.openstreetmap.josm.data.osm.OsmDataManager;
+import org.openstreetmap.josm.data.UndoRedoHandler;
+import org.openstreetmap.josm.gui.MainApplication;
+import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.gui.SideButton;
 import org.openstreetmap.josm.gui.dialogs.ToggleDialog;
 import org.openstreetmap.josm.gui.widgets.HtmlPanel;
 import org.openstreetmap.josm.gui.widgets.VerticallyScrollablePanel;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.data.TaskPrimitives;
+import org.openstreetmap.josm.plugins.maproulette.data.ApplyCooperativeChange;
+import org.openstreetmap.josm.plugins.maproulette.data.MergeDataSetsCommand;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
 import org.openstreetmap.josm.plugins.maproulette.gui.TagChangeTable;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
@@ -74,6 +79,10 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * The panel for cooperative work
      */
     private final JPanel cooperativeWork = new JPanel();
+    private TagChangeTable cooperativeTagTable = new TagChangeTable();
+    private final ArrayList<CooperativeTagSelection> cooperativeSelections = new ArrayList<>();
+    private boolean cooperativePrimitiveMissing;
+    private Long cooperativeTaskId;
     /**
      * The actions for the task
      */
@@ -104,11 +113,15 @@ public final class CurrentTaskPanel extends ToggleDialog {
         final Supplier<HTMLDocument> docSupplier = () -> (HTMLDocument) this.instructionPane.getEditorPane()
                 .getDocument();
         final var newActions = new InnerAction[] {
-                new TaskStatusAction(CompletionResult.FIXED, supplier, docSupplier),
-                new TaskStatusAction(CompletionResult.ALREADY_FIXED, supplier, docSupplier),
-                new TaskStatusAction(CompletionResult.NOT_AN_ISSUE, supplier, docSupplier),
-                new TaskStatusAction(CompletionResult.CANT_COMPLETE, supplier, docSupplier),
-                new TaskStatusAction(CompletionResult.SKIP, supplier, docSupplier), new SelectOsmPrimitives(supplier) };
+                new TaskStatusAction(CompletionResult.FIXED, supplier, docSupplier, this::prepareCooperativeFixed),
+                new TaskStatusAction(CompletionResult.ALREADY_FIXED, supplier, docSupplier,
+                        this::prepareCooperativeFixed),
+                new TaskStatusAction(CompletionResult.NOT_AN_ISSUE, supplier, docSupplier,
+                        this::prepareCooperativeFixed),
+                new TaskStatusAction(CompletionResult.CANT_COMPLETE, supplier, docSupplier,
+                        this::prepareCooperativeFixed),
+                new TaskStatusAction(CompletionResult.SKIP, supplier, docSupplier, this::prepareCooperativeFixed),
+                new SelectOsmPrimitives(supplier) };
 
         final var sideButtons = new ArrayList<SideButton>();
         for (var action : newActions) {
@@ -167,6 +180,9 @@ public final class CurrentTaskPanel extends ToggleDialog {
             action.updateEnabledState();
         }
         if (currentTask == null) {
+            cooperativeSelections.clear();
+            cooperativeTaskId = null;
+            cooperativePrimitiveMissing = false;
             this.idLabel.setText(null);
             this.instructionPane.setText(tr("Please select a locked task"));
             this.cooperativeWork.setVisible(false);
@@ -178,38 +194,137 @@ public final class CurrentTaskPanel extends ToggleDialog {
         updateSelections((HTMLDocument) this.instructionPane.getEditorPane().getDocument(), this.task);
         if (currentTask.isCooperativeWorkOsmChange()) {
             final var cooperativePanel = this.cooperativeWork;
+            final var previousKeep = new HashMap<String, Boolean>();
+            if (Objects.equals(cooperativeTaskId, currentTask.id())) {
+                for (var row = 0; row < cooperativeSelections.size(); row++) {
+                    previousKeep.put(cooperativeSelections.get(row).key(), cooperativeTagTable.isKept(row));
+                }
+            }
+            cooperativeTaskId = currentTask.id();
+            cooperativeSelections.clear();
+            cooperativePrimitiveMissing = false;
+            cooperativeTagTable = new TagChangeTable();
             cooperativePanel.removeAll();
             cooperativePanel.setVisible(true);
             cooperativePanel.setLayout(new GridBagLayout());
             final var taskCooperativeWork = Objects.requireNonNull(currentTask.cooperativeWorkAsOsmChange());
             if (taskCooperativeWork.creates() != null && taskCooperativeWork.creates().length > 0) {
-                cooperativePanel.add(new JLabel(tr("Creates")), GBC.eol());
-                throw new IllegalArgumentException("Haven't figured out what to do with creates");
+                cooperativePanel.add(new JLabel(tr("This task creates OSM objects, which is unsupported in this release.")),
+                        GBC.eol());
             }
             if (taskCooperativeWork.updates() != null && taskCooperativeWork.updates().length > 0
-                    && OsmDataManager.getInstance().getEditDataSet() != null) {
+                    && WorkflowController.getInstance().snapshot().editLayer() != null) {
+                final var dataSet = WorkflowController.getInstance().snapshot().editLayer().getDataSet();
                 cooperativePanel.add(new JLabel(tr("Tag Updates")), GBC.eol());
-                final var table = new TagChangeTable();
+                final var table = cooperativeTagTable;
+                table.setEnabled(WorkflowController.getInstance().snapshot().completionDraft() == null);
                 cooperativePanel.add(table.getTableHeader(), GBC.eol().fill(GridBagConstraints.HORIZONTAL));
                 cooperativePanel.add(table, GBC.eol().fill(GridBagConstraints.HORIZONTAL));
+                var row = 0;
                 for (var updates : taskCooperativeWork.updates()) {
-                    var row = 0;
-                    final var current = OsmDataManager.getInstance().getEditDataSet().getPrimitiveById(updates.osmId(),
-                            updates.osmType());
+                    final var current = dataSet.getPrimitiveById(updates.osmId(), updates.osmType());
+                    if (current == null) {
+                        cooperativePrimitiveMissing = true;
+                        cooperativePanel.add(new JLabel(tr("Missing {0} {1}; cooperative changes cannot be applied.",
+                                updates.osmType().getAPIName(), updates.osmId())), GBC.eol());
+                        continue;
+                    }
                     for (var change : updates.tags().updates().entrySet()) {
                         final var old = current.get(change.getKey());
                         table.setValueAt(change.getKey(), row, 0);
                         table.setValueAt(old, row, 1);
-                        table.setValueAt(change.getValue(), row++, 2);
+                        table.setValueAt(change.getValue(), row, 2);
+                        cooperativeSelections.add(new CooperativeTagSelection(updates, change.getKey()));
+                        table.setValueAt(previousKeep.getOrDefault(cooperativeSelections.get(row).key(), true), row, 3);
+                        row++;
                     }
                     for (var change : updates.tags().deletes()) {
                         table.setValueAt(change, row, 0);
-                        table.setValueAt(current.get(change), row++, 1);
+                        table.setValueAt(current.get(change), row, 1);
+                        cooperativeSelections.add(new CooperativeTagSelection(updates, change));
+                        table.setValueAt(previousKeep.getOrDefault(cooperativeSelections.get(row).key(), true), row, 3);
+                        row++;
                     }
                 }
             } else {
                 this.cooperativeWork.setVisible(false);
             }
+        }
+    }
+
+    private boolean prepareCooperativeFixed(Task candidate) {
+        if (candidate == null || candidate.cooperativeWork() == null) {
+            return true;
+        }
+        final var editLayer = WorkflowController.getInstance().snapshot().editLayer();
+        if (editLayer == null) {
+            return false;
+        }
+        final var dataSet = editLayer.getDataSet();
+        if (candidate.isCooperativeWorkOsmChange()) {
+            final var change = candidate.cooperativeWorkAsOsmChange();
+            if (change.creates().length > 0) {
+                javax.swing.JOptionPane.showMessageDialog(MainApplication.getMainFrame(),
+                        tr("Cooperative object creation is unsupported in this release."),
+                        tr("Cannot apply cooperative task"), javax.swing.JOptionPane.WARNING_MESSAGE);
+                return false;
+            }
+            if (cooperativePrimitiveMissing) {
+                return false;
+            }
+            if (!cooperativeSelections.isEmpty()) {
+                var kept = false;
+                for (var row = 0; row < cooperativeSelections.size() && !kept; row++) {
+                    kept = cooperativeTagTable.isKept(row);
+                }
+                if (!kept) {
+                    return true;
+                }
+            }
+            final var command = new ApplyCooperativeChange(change).generateCommand(dataSet,
+                    (update, key) -> isCooperativeChangeKept(update, key));
+            if (command == null) {
+                javax.swing.JOptionPane.showMessageDialog(MainApplication.getMainFrame(),
+                        tr("The cooperative changes could not be applied. Check missing objects and selected changes."),
+                        tr("Cannot apply cooperative task"), javax.swing.JOptionPane.WARNING_MESSAGE);
+                return false;
+            }
+            UndoRedoHandler.getInstance().add(command);
+            return true;
+        }
+        if (candidate.isCooperativeWorkOsc()) {
+            final var choice = javax.swing.JOptionPane.showOptionDialog(MainApplication.getMainFrame(),
+                    tr("Apply the cooperative OSC to the task edit layer?"), tr("Cooperative MapRoulette task"),
+                    javax.swing.JOptionPane.YES_NO_CANCEL_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null,
+                    new String[] { tr("Apply"), tr("Show"), tr("Cancel") }, tr("Apply"));
+            final var osc = candidate.cooperativeWorkAsOsc();
+            if (choice == 0) {
+                UndoRedoHandler.getInstance().add(new MergeDataSetsCommand(dataSet, osc.a, true, null));
+                return true;
+            }
+            if (choice == 1) {
+                MainApplication.getLayerManager().addLayer(new OsmDataLayer(osc.a, candidate.name(), null));
+            }
+            return false;
+        }
+        return false;
+    }
+
+    private boolean isCooperativeChangeKept(
+            org.openstreetmap.josm.plugins.maproulette.api.model.ElementUpdate update, String key) {
+        for (var row = 0; row < cooperativeSelections.size(); row++) {
+            final var selection = cooperativeSelections.get(row);
+            if (selection.update().equals(update) && selection.tag().equals(key)) {
+                return cooperativeTagTable.isKept(row);
+            }
+        }
+        return false;
+    }
+
+    private record CooperativeTagSelection(
+            org.openstreetmap.josm.plugins.maproulette.api.model.ElementUpdate update, String tag) {
+        String key() {
+            return update.osmType() + ":" + update.osmId() + ":" + tag;
         }
     }
 
@@ -367,10 +482,11 @@ private static class SelectOsmPrimitives extends InnerAction {
     @Override
     public void actionPerformed(ActionEvent e) {
         final var task = this.taskSuppler.get();
-        if (task != null) {
+        final var layer = WorkflowController.getInstance().snapshot().editLayer();
+        if (task != null && layer != null) {
             final var primitives = TaskPrimitives.getPrimitiveIds(task);
             if (!primitives.isEmpty()) {
-                OsmDataManager.getInstance().getEditDataSet().setSelected(primitives);
+                layer.getDataSet().setSelected(primitives);
                 AutoScaleAction.autoScale(AutoScaleAction.AutoScaleMode.SELECTION);
             }
         }
@@ -380,7 +496,8 @@ private static class SelectOsmPrimitives extends InnerAction {
     public void updateEnabledState() {
         if (this.taskSuppler != null) { // This check is only needed for the constructor. Watch JEP draft 8300786.
             final var task = this.taskSuppler.get();
-            this.setEnabled(!Optional.ofNullable(task).map(TaskPrimitives::getPrimitiveIds)
+            this.setEnabled(WorkflowController.getInstance().snapshot().editLayer() != null
+                    && !Optional.ofNullable(task).map(TaskPrimitives::getPrimitiveIds)
                     .orElse(Collections.emptyList()).isEmpty());
         }
     }

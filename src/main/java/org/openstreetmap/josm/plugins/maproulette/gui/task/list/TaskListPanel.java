@@ -40,6 +40,8 @@ import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTas
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.current.CurrentTaskPanel;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
+import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
+import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ChallengeInputParser;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ReservationLockRefresher;
 import org.openstreetmap.josm.plugins.maproulette.workflow.TaskDownloadService;
@@ -118,8 +120,10 @@ public final class TaskListPanel extends ToggleDialog {
         createLayout(panel, true, Collections.emptyList());
         final var snapshot = workflow.snapshot();
         updateFromSnapshot(snapshot);
-        if (snapshot.reservedTask() != null) {
+        if (!snapshot.suspended() && snapshot.reservedTask() != null) {
             presentReservedPreview(snapshot);
+        } else if (!snapshot.suspended() && snapshot.activeTask() != null) {
+            showCurrentTask(snapshot.activeTask());
         }
     }
 
@@ -227,7 +231,7 @@ public final class TaskListPanel extends ToggleDialog {
 
     private void refreshReservation(long taskId) {
         final var reserved = workflow.snapshot().reservedTask();
-        if (reserved == null || reserved.id() != taskId) {
+        if (reserved == null || reserved.id() != taskId || !isWorkflowAuthenticated()) {
             return;
         }
         try {
@@ -255,6 +259,11 @@ public final class TaskListPanel extends ToggleDialog {
     private void releaseReservation() {
         final var task = workflow.snapshot().reservedTask();
         if (task == null) {
+            return;
+        }
+        if (!isWorkflowAuthenticated()) {
+            message.setText(tr("Authenticate as the account that reserved this task before releasing it."));
+            updateEnabledState();
             return;
         }
         loading = true;
@@ -294,6 +303,11 @@ public final class TaskListPanel extends ToggleDialog {
         final var task = snapshot.reservedTask();
         if (task == null || snapshot.state() != State.RESERVED_PREVIEW
                 && snapshot.state() != State.RECOVERABLE_ERROR) {
+            return;
+        }
+        if (!isWorkflowAuthenticated()) {
+            message.setText(tr("Authenticate as the account that reserved this task before starting it."));
+            updateEnabledState();
             return;
         }
         loading = true;
@@ -408,8 +422,13 @@ public final class TaskListPanel extends ToggleDialog {
             final var newSnapshot = (Snapshot) event.getNewValue();
             final var oldReserved = oldSnapshot.reservedTask();
             final var newReserved = newSnapshot.reservedTask();
-            if (newReserved != null && (oldReserved == null || oldReserved.id() != newReserved.id())) {
+            if (!newSnapshot.suspended() && newReserved != null
+                    && (oldSnapshot.suspended() || oldReserved == null || oldReserved.id() != newReserved.id())) {
                 presentReservedPreview(newSnapshot);
+            } else if (!newSnapshot.suspended() && newSnapshot.activeTask() != null && (oldSnapshot.suspended()
+                    || oldSnapshot.activeTask() == null
+                    || oldSnapshot.activeTask().id() != newSnapshot.activeTask().id())) {
+                showCurrentTask(newSnapshot.activeTask());
             } else if (oldSnapshot.state() == State.SUBMITTING && newSnapshot.state() == State.CHALLENGE_IDLE) {
                 showAutomaticReservationOutcome(newSnapshot);
             }
@@ -483,15 +502,24 @@ public final class TaskListPanel extends ToggleDialog {
 
     private void updateEnabledState() {
         final var snapshot = workflow.snapshot();
-        loadChallenge.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE
+        final var authenticated = !snapshot.suspended() && isWorkflowAuthenticated();
+        loadChallenge.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE
                 && workflow.canSelectChallenge());
-        randomMode.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE);
-        nearbyMode.setEnabled(!loading && snapshot.state() == State.CHALLENGE_IDLE);
-        startDownloadAction.setEnabled(!loading && snapshot.state() == State.RESERVED_PREVIEW);
-        retryDownloadAction.setEnabled(!loading && snapshot.state() == State.RECOVERABLE_ERROR
+        randomMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);
+        nearbyMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);
+        startDownloadAction.setEnabled(authenticated && !loading && snapshot.state() == State.RESERVED_PREVIEW);
+        retryDownloadAction.setEnabled(authenticated && !loading && snapshot.state() == State.RECOVERABLE_ERROR
                 && snapshot.reservedTask() != null);
-        releaseAction.setEnabled(!loading && (snapshot.state() == State.RESERVED_PREVIEW
+        releaseAction.setEnabled(authenticated && !loading && (snapshot.state() == State.RESERVED_PREVIEW
                 || snapshot.state() == State.RECOVERABLE_ERROR && snapshot.reservedTask() != null));
+    }
+
+    private boolean isWorkflowAuthenticated() {
+        if (MapRouletteConfig.getInstance() == null) {
+            return false;
+        }
+        final var account = AuthenticationManager.getAuthenticatedUser(MapRouletteConfig.getBaseUrl());
+        return account != null && workflow.isOwnedBy(MapRouletteConfig.getBaseUrl(), account);
     }
 
     /** Current workflow selection used by the preview layer and later completion actions. */
