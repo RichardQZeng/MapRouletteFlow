@@ -21,6 +21,9 @@ import org.openstreetmap.josm.gui.widgets.HtmlPanel;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
+import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
+import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraft;
+import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 
 class CompletionDialogTest {
     @Test
@@ -72,5 +75,19 @@ class CompletionDialogTest {
         final var model = (ButtonModel) iterator.getAttributes().getAttribute(StyleConstants.ModelAttribute);
         model.setSelected(true);
         assertEquals(Map.of("confirmed", true), CompletionDialog.responses(document));
+    }
+
+    @Test
+    void generatedCommentPrefillsOnlyNewFixedDrafts() {
+        final var task = new Task(1, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
+                null, null, null, null, 0, null, null, null, false, null, "");
+        final var prior = new CompletionDraft(task, CompletionResult.FIXED, "Mapper text", "", null, Map.of(),
+                NextMode.RANDOM);
+
+        assertEquals("Generated actions", CompletionDialog.initialComment(null, CompletionResult.FIXED,
+                "Generated actions"));
+        assertEquals("", CompletionDialog.initialComment(null, CompletionResult.ALREADY_FIXED, "Generated actions"));
+        assertEquals("Mapper text", CompletionDialog.initialComment(prior, CompletionResult.FIXED,
+                "Generated actions"));
     }
 }

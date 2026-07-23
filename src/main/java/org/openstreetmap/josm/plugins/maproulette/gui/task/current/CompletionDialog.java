@@ -61,6 +61,7 @@ import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraft;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionDraftValidator;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionSubmissionController;
+import org.openstreetmap.josm.plugins.maproulette.workflow.TaskEditTracker;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.tools.GBC;
 
@@ -84,6 +85,7 @@ final class CompletionDialog extends JDialog {
     private final JPanel instructionsContainer = new JPanel(new BorderLayout());
     private final JButton cancel = new JButton(tr("Cancel"));
     private final JButton submit = new JButton(tr("Submit"));
+    private final String generatedCommentAtOpen;
     private boolean busy;
 
     CompletionDialog(Window owner, WorkflowController workflow, CompletionSubmissionController submissions, Task task,
@@ -101,7 +103,9 @@ final class CompletionDialog extends JDialog {
 
         final var prior = workflow.snapshot().completionDraft();
         final var initial = prior != null && prior.task().id() == task.id() ? prior : null;
-        comment.setText(initial == null ? "" : initial.comment());
+        final var generatedComment = TaskEditTracker.getInstance().compose(task, workflow.snapshot().editLayer());
+        generatedCommentAtOpen = initial == null && result == CompletionResult.FIXED ? generatedComment : null;
+        comment.setText(initialComment(initial, result, generatedComment));
         ((AbstractDocument) comment.getDocument()).setDocumentFilter(new LengthFilter(CompletionDraft.MAX_COMMENT_LENGTH));
         comment.getDocument().addDocumentListener(new SimpleDocumentListener() {
             @Override
@@ -185,7 +189,7 @@ final class CompletionDialog extends JDialog {
     }
 
     private void submit() {
-        final var draft = draft();
+        var draft = draft();
         final var required = responseNames((HTMLDocument) instructions.getEditorPane().getDocument());
         final var errors = CompletionDraftValidator.validate(draft, challenge, required);
         if (!errors.isEmpty()) {
@@ -197,6 +201,10 @@ final class CompletionDialog extends JDialog {
         if (result == CompletionResult.FIXED) {
             if (workflow.snapshot().completionDraft() == null && !cooperativePreparation.getAsBoolean()) {
                 return;
+            }
+            if (generatedCommentAtOpen != null && comment.getText().equals(generatedCommentAtOpen)) {
+                comment.setText(TaskEditTracker.getInstance().compose(task, workflow.snapshot().editLayer()));
+                draft = draft();
             }
             submissions.preserveFixedDraft(draft);
             final var uploads = FixedUploadCoordinator.getInstance();
@@ -221,9 +229,10 @@ final class CompletionDialog extends JDialog {
             return;
         }
         setBusy(true);
+        final var nonFixedDraft = draft;
         MainApplication.worker.execute(() -> {
             try {
-                submissions.submit(draft);
+                submissions.submit(nonFixedDraft);
                 SwingUtilities.invokeLater(() -> close(true));
             } catch (Exception exception) {
                 SwingUtilities.invokeLater(() -> {
@@ -257,6 +266,13 @@ final class CompletionDialog extends JDialog {
                 ((ReviewChoice) review.getSelectedItem()).value,
                 responses((HTMLDocument) instructions.getEditorPane().getDocument()),
                 nearby.isSelected() ? NextMode.NEARBY : NextMode.RANDOM);
+    }
+
+    static String initialComment(CompletionDraft prior, CompletionResult result, String generatedComment) {
+        if (prior != null) {
+            return prior.comment();
+        }
+        return result == CompletionResult.FIXED && generatedComment != null ? generatedComment : "";
     }
 
     private void updateComment() {

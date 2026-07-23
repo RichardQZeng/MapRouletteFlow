@@ -27,6 +27,7 @@ import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowDraftStore;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
+import org.openstreetmap.josm.plugins.maproulette.workflow.TaskEditTracker;
 import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.tools.Destroyable;
 import org.openstreetmap.josm.tools.Logging;
@@ -49,6 +50,7 @@ public class MapRoulette extends Plugin implements Destroyable {
     public MapRoulette(PluginInformation info) {
         super(info);
         MapRouletteShortcuts.registerAll();
+        TaskEditTracker.getInstance().start();
         this.getPreferenceSetting().ok();
         UploadAction.registerUploadHook(earlyUploadHook);
         UploadAction.registerUploadHook(lateUploadHook, true);
@@ -183,6 +185,7 @@ public class MapRoulette extends Plugin implements Destroyable {
         }
         if (lockedTasks.isEmpty()) {
             workflow.shutdown();
+            TaskEditTracker.getInstance().discard();
         } else {
             final String releaseKey;
             try {
@@ -205,6 +208,7 @@ public class MapRoulette extends Plugin implements Destroyable {
                     CLEANUP_IN_PROGRESS.set(false);
                     if (errors.isEmpty()) {
                         workflow.shutdown();
+                        TaskEditTracker.getInstance().discard();
                         if (MainApplication.getMap() != null) {
                             final var account = AuthenticationManager
                                     .getAuthenticatedUser(MapRouletteConfig.getBaseUrl());
@@ -215,6 +219,7 @@ public class MapRoulette extends Plugin implements Destroyable {
                         }
                     } else {
                         workflow.resume();
+                        TaskEditTracker.getInstance().start();
                         errors.forEach(ExceptionDialogUtil::explainException);
                     }
                 });
@@ -231,6 +236,7 @@ public class MapRoulette extends Plugin implements Destroyable {
         UploadAction.unregisterUploadHook(earlyUploadHook);
         UploadAction.unregisterUploadHook(lateUploadHook);
         org.openstreetmap.josm.plugins.maproulette.io.upload.FixedUploadCoordinator.getInstance().cleanup();
+        TaskEditTracker.getInstance().pause();
         cleanupWorkflow();
     }
 }

@@ -41,9 +41,11 @@ public final class WorkflowController {
         RESERVED_PREVIEW,
         STARTING_DOWNLOAD,
         ACTIVE_EDITING,
+        REDOWNLOADING,
         COMPLETION_DRAFT,
         WAITING_FOR_UPLOAD,
         SUBMITTING,
+        RELEASING,
         RECOVERABLE_ERROR
     }
 
@@ -92,6 +94,8 @@ public final class WorkflowController {
     private final Map<Long, ModifiedTask> completionDrafts = new TreeMap<>();
     private State state = State.DISCONNECTED;
     private State recoveryState;
+    private State releaseReturnState;
+    private State releaseRecoveryState;
     private Challenge activeChallenge;
     private Task reservedTask;
     private Task activeTask;
@@ -299,6 +303,54 @@ public final class WorkflowController {
         });
     }
 
+    /** Start downloading fresh OSM data into the exact active edit layer. */
+    public void beginRedownload(@Nullable Runnable cancelOperation) {
+        mutate(() -> {
+            requireState(State.ACTIVE_EDITING);
+            requireActiveTaskAndLayer();
+            replaceOperationCleanup(cancelOperation);
+            transition(State.REDOWNLOADING);
+        });
+    }
+
+    /** Retry a failed active-task re-download with a newly owned cancellation handle. */
+    public void retryRedownload(@Nullable Runnable cancelOperation) {
+        mutate(() -> {
+            requireState(State.RECOVERABLE_ERROR);
+            if (recoveryState != State.REDOWNLOADING) {
+                throw new IllegalStateException("The recoverable operation is not an active task re-download");
+            }
+            requireActiveTaskAndLayer();
+            replaceOperationCleanup(cancelOperation);
+            recoveryState = null;
+            transition(State.REDOWNLOADING);
+        });
+    }
+
+    /** Finish an active-task re-download without replacing its task or edit layer. */
+    public void redownloadSucceeded(Task task, OsmDataLayer layer) {
+        Objects.requireNonNull(task);
+        Objects.requireNonNull(layer);
+        mutate(() -> {
+            requireState(State.REDOWNLOADING);
+            requireSameTask(activeTask, task);
+            if (editLayer != layer) {
+                throw new IllegalArgumentException("Re-download did not use the active task edit layer");
+            }
+            cleanupOperation();
+            transition(State.ACTIVE_EDITING);
+        });
+    }
+
+    /** Cancel an active-task re-download while retaining its task and exact edit layer. */
+    public void cancelRedownload() {
+        mutate(() -> {
+            requireState(State.REDOWNLOADING);
+            cleanupOperation();
+            transition(State.ACTIVE_EDITING);
+        });
+    }
+
     /** Create the single completion draft for the active task. */
     public void draftCompletion(CompletionDraft draft) {
         Objects.requireNonNull(draft);
@@ -442,7 +494,8 @@ public final class WorkflowController {
     /** Enter a retryable error state while preserving reservation, task, and draft context. */
     public void failRecoverably() {
         mutate(() -> {
-            if (state == State.DISCONNECTED || state == State.CHALLENGE_IDLE || state == State.RECOVERABLE_ERROR) {
+            if (state == State.DISCONNECTED || state == State.CHALLENGE_IDLE || state == State.RECOVERABLE_ERROR
+                    || state == State.RELEASING) {
                 throw new IllegalStateException("There is no in-progress operation to recover");
             }
             recoveryState = state;
@@ -475,19 +528,83 @@ public final class WorkflowController {
         });
     }
 
-    /** Release a preview reservation, including one retained after a recoverable error. */
-    public void releaseReservation() {
+    /** Whether the retained recoverable operation is an initial task download. */
+    public boolean canRetryInitialDownload() {
+        return onEdt(() -> state == State.RECOVERABLE_ERROR && recoveryState == State.STARTING_DOWNLOAD
+                && reservedTask != null && activeTask == null);
+    }
+
+    /** Whether the retained recoverable operation is an active-task re-download. */
+    public boolean canRetryActiveRedownload() {
+        return onEdt(() -> state == State.RECOVERABLE_ERROR && recoveryState == State.REDOWNLOADING
+                && activeTask != null && editLayer != null);
+    }
+
+    /** Whether the current retained task can be safely released before status submission. */
+    public boolean canReleaseTask() {
+        return onEdt(this::canReleaseTaskOnEdt);
+    }
+
+    /** Begin an asynchronous server release while retaining all workflow context. */
+    public void beginRelease(@Nullable Runnable cancelOperation) {
         mutate(() -> {
-            if (state != State.RESERVED_PREVIEW
-                    && !(state == State.RECOVERABLE_ERROR && reservedTask != null && activeTask == null)) {
-                throw unexpectedState(State.RESERVED_PREVIEW);
+            if (!canReleaseTaskOnEdt()) {
+                throw new IllegalStateException("The current MapRoulette task cannot be released");
             }
+            releaseReturnState = state;
+            releaseRecoveryState = recoveryState;
             cleanupAllHandles();
-            lockedTasks.remove(reservedTask.id());
+            replaceOperationCleanup(cancelOperation);
+            transition(State.RELEASING);
+        });
+    }
+
+    /** Finish a server release and discard workflow references, without changing the edit layer or its data. */
+    public void releaseSucceeded() {
+        mutate(() -> {
+            requireState(State.RELEASING);
+            cleanupAllHandles();
+            if (reservedTask != null) {
+                lockedTasks.remove(reservedTask.id());
+                completionDrafts.remove(reservedTask.id());
+            }
+            if (activeTask != null) {
+                lockedTasks.remove(activeTask.id());
+                completionDrafts.remove(activeTask.id());
+            }
             reservedTask = null;
+            activeTask = null;
+            completionDraft = null;
+            auxiliaryRetry = null;
+            completionChangesetId = null;
+            completionStatusCommitted = false;
+            reservationStatus = null;
+            editLayer = null;
             recoveryState = null;
+            releaseReturnState = null;
+            releaseRecoveryState = null;
             transition(State.CHALLENGE_IDLE);
         });
+    }
+
+    /** Restore the exact retained workflow state after a server release fails or is canceled. */
+    public void releaseFailed() {
+        mutate(() -> {
+            requireState(State.RELEASING);
+            cleanupAllHandles();
+            final var returnState = Objects.requireNonNull(releaseReturnState, "Missing release return state");
+            final var returnRecoveryState = releaseRecoveryState;
+            releaseReturnState = null;
+            releaseRecoveryState = null;
+            recoveryState = returnRecoveryState;
+            transition(returnState);
+        });
+    }
+
+    /** Release a preview reservation, including one retained after a recoverable error. */
+    public void releaseReservation() {
+        beginRelease(null);
+        releaseSucceeded();
     }
 
     /** Install the reservation timer cleanup, replacing and cleaning any previous timer. */
@@ -524,6 +641,8 @@ public final class WorkflowController {
             accountOwner = null;
             editLayer = null;
             recoveryState = null;
+            releaseReturnState = null;
+            releaseRecoveryState = null;
             suspended = false;
             state = State.DISCONNECTED;
         });
@@ -655,9 +774,35 @@ public final class WorkflowController {
         return state == State.CHALLENGE_IDLE && activeChallenge != null && !hasPendingWorkOnEdt();
     }
 
+    private boolean canReleaseTaskOnEdt() {
+        if (completionStatusCommitted) {
+            return false;
+        }
+        if (state == State.RESERVED_PREVIEW) {
+            return reservedTask != null && activeTask == null;
+        }
+        if (state == State.ACTIVE_EDITING || state == State.COMPLETION_DRAFT) {
+            return activeTask != null;
+        }
+        if (state != State.RECOVERABLE_ERROR || recoveryState == null) {
+            return false;
+        }
+        return switch (recoveryState) {
+        case RESERVED_PREVIEW, STARTING_DOWNLOAD -> reservedTask != null && activeTask == null;
+        case ACTIVE_EDITING, REDOWNLOADING, COMPLETION_DRAFT -> activeTask != null;
+        default -> false;
+        };
+    }
+
     private void requireReservedTask() {
         if (reservedTask == null) {
             throw new IllegalStateException("No task is reserved");
+        }
+    }
+
+    private void requireActiveTaskAndLayer() {
+        if (activeTask == null || editLayer == null) {
+            throw new IllegalStateException("No active task edit layer is retained");
         }
     }
 
@@ -697,20 +842,25 @@ public final class WorkflowController {
         return switch (from) {
         case DISCONNECTED -> to == State.CHALLENGE_IDLE;
         case CHALLENGE_IDLE -> to == State.DISCONNECTED || to == State.RESERVED_PREVIEW;
-        case RESERVED_PREVIEW -> to == State.CHALLENGE_IDLE || to == State.STARTING_DOWNLOAD
+        case RESERVED_PREVIEW -> to == State.STARTING_DOWNLOAD || to == State.RELEASING
                 || to == State.RECOVERABLE_ERROR;
         case STARTING_DOWNLOAD -> to == State.RESERVED_PREVIEW || to == State.ACTIVE_EDITING
                 || to == State.RECOVERABLE_ERROR;
-        case ACTIVE_EDITING -> to == State.COMPLETION_DRAFT || to == State.RECOVERABLE_ERROR;
+        case ACTIVE_EDITING -> to == State.REDOWNLOADING || to == State.COMPLETION_DRAFT || to == State.RELEASING
+                || to == State.RECOVERABLE_ERROR;
+        case REDOWNLOADING -> to == State.ACTIVE_EDITING || to == State.RECOVERABLE_ERROR;
         case COMPLETION_DRAFT -> to == State.ACTIVE_EDITING || to == State.WAITING_FOR_UPLOAD
-                || to == State.SUBMITTING || to == State.RECOVERABLE_ERROR;
+                || to == State.SUBMITTING || to == State.RELEASING || to == State.RECOVERABLE_ERROR;
         case WAITING_FOR_UPLOAD -> to == State.COMPLETION_DRAFT || to == State.SUBMITTING
                 || to == State.RECOVERABLE_ERROR;
         case SUBMITTING -> to == State.CHALLENGE_IDLE || to == State.RESERVED_PREVIEW
                 || to == State.RECOVERABLE_ERROR;
+        case RELEASING -> to == State.CHALLENGE_IDLE || to == State.RESERVED_PREVIEW
+                || to == State.ACTIVE_EDITING || to == State.COMPLETION_DRAFT || to == State.RECOVERABLE_ERROR;
         case RECOVERABLE_ERROR -> to == State.CHALLENGE_IDLE || to == State.RESERVED_PREVIEW
-                || to == State.STARTING_DOWNLOAD || to == State.ACTIVE_EDITING || to == State.COMPLETION_DRAFT
-                || to == State.WAITING_FOR_UPLOAD || to == State.SUBMITTING;
+                || to == State.STARTING_DOWNLOAD || to == State.ACTIVE_EDITING || to == State.REDOWNLOADING
+                || to == State.COMPLETION_DRAFT || to == State.WAITING_FOR_UPLOAD || to == State.SUBMITTING
+                || to == State.RELEASING;
         };
     }
 

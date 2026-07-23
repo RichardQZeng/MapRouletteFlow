@@ -21,6 +21,17 @@ public final class TaskDownloadLayerSelector {
         return new LayerPlan(layers, target);
     }
 
+    static LayerPlan prepareExact(MainLayerManager layerManager, OsmDataLayer target) {
+        final var layers = List.copyOf(layerManager.getLayersOfType(OsmDataLayer.class));
+        if (!layers.contains(target) || !target.isDownloadable()) {
+            throw new IllegalStateException("The active task edit layer is not available for download");
+        }
+        if (layerManager.getActiveLayer() != target) {
+            layerManager.setActiveLayer(target);
+        }
+        return new LayerPlan(layers, target);
+    }
+
     static OsmDataLayer chooseTarget(OsmDataLayer editLayer, List<OsmDataLayer> layers) {
         if (editLayer != null && editLayer.isDownloadable()) {
             return editLayer;
@@ -39,6 +50,10 @@ public final class TaskDownloadLayerSelector {
             return added.get(0);
         }
         return editLayer != null && after.contains(editLayer) && editLayer.isDownloadable() ? editLayer : null;
+    }
+
+    static OsmDataLayer resolveExact(OsmDataLayer expected, OsmDataLayer editLayer, List<OsmDataLayer> after) {
+        return editLayer == expected && after.contains(expected) ? expected : null;
     }
 
     record LayerPlan(List<OsmDataLayer> layersBefore, OsmDataLayer target) {

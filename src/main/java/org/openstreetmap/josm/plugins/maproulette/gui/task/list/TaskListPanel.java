@@ -14,6 +14,7 @@ import java.io.Serial;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 import javax.swing.AbstractAction;
 import javax.swing.ButtonGroup;
@@ -32,7 +33,9 @@ import org.openstreetmap.josm.gui.dialogs.ToggleDialog;
 import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.gui.widgets.JosmTextField;
 import org.openstreetmap.josm.plugins.maproulette.api.ChallengeAPI;
+import org.openstreetmap.josm.plugins.maproulette.api.CurrentUserAPI;
 import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
+import org.openstreetmap.josm.plugins.maproulette.api.UserProgressAPI;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api.model.TaskClusteredPoint;
@@ -50,11 +53,13 @@ import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ChallengeInputParser;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ReservationLockRefresher;
 import org.openstreetmap.josm.plugins.maproulette.workflow.TaskDownloadService;
+import org.openstreetmap.josm.plugins.maproulette.workflow.TaskEditTracker;
 import org.openstreetmap.josm.plugins.maproulette.workflow.TaskReservationService;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.Snapshot;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.State;
 import org.openstreetmap.josm.tools.GBC;
+import org.openstreetmap.josm.tools.Logging;
 import org.openstreetmap.josm.tools.Shortcut;
 
 /** Main one-challenge, one-reserved-task MapRoulette workflow panel. */
@@ -76,6 +81,7 @@ public final class TaskListPanel extends ToggleDialog {
     private final JLabel reservation = new JLabel(" ");
     private final JLabel taskDetails = new JLabel(" ");
     private final JLabel message = new JLabel(" ");
+    private final UserProgressStrip userProgress = new UserProgressStrip();
     private final StartDownloadAction startDownloadAction = new StartDownloadAction();
     private final RetryDownloadAction retryDownloadAction = new RetryDownloadAction();
     private final ReleaseAction releaseAction = new ReleaseAction();
@@ -84,10 +90,13 @@ public final class TaskListPanel extends ToggleDialog {
     private final JLabel currentTaskLabel = new JLabel(tr("Current task:"));
     private final JPanel currentTaskActions = new JPanel(new GridLayout(0, 2, 4, 4));
     private final PropertyChangeListener workflowListener = this::workflowChanged;
+    private final Runnable authenticationListener = () -> GuiHelper.runInEDT(this::authenticationChanged);
     private JDialog instructionsDialog;
     private volatile boolean destroyed;
     private boolean loading;
     private long requestGeneration;
+    private long progressGeneration;
+    private ProgressIdentity progressIdentity;
 
     public TaskListPanel() {
         super(tr("MapRoulette Tasks"), "user_no_image.png", tr("MapRoulette challenge workflow"),
@@ -118,6 +127,7 @@ public final class TaskListPanel extends ToggleDialog {
         inputPanel.add(clearChallenge, GBC.eol());
 
         final var panel = new JPanel(new GridBagLayout());
+        panel.add(userProgress, GBC.eol().fill(GBC.HORIZONTAL));
         panel.add(new JLabel(tr("Challenge ID or URL:")), GBC.eol().anchor(GBC.LINE_START));
         panel.add(inputPanel, GBC.eol().fill(GBC.HORIZONTAL));
         panel.add(challengeName, GBC.eol().anchor(GBC.LINE_START).insets(0, 8, 0, 0));
@@ -141,11 +151,15 @@ public final class TaskListPanel extends ToggleDialog {
         panel.add(currentTaskActions, GBC.eol().fill(GBC.HORIZONTAL));
 
         workflow.addPropertyChangeListener(workflowListener);
+        AuthenticationManager.addAuthenticationListener(authenticationListener);
         createLayout(panel, true, Collections.emptyList());
         final var snapshot = workflow.snapshot();
         updateFromSnapshot(snapshot);
         if (!snapshot.suspended() && snapshot.reservedTask() != null) {
             presentReservedPreview(snapshot);
+        }
+        if (snapshot.state() != State.DISCONNECTED) {
+            refreshProgress(false);
         }
     }
 
@@ -281,7 +295,8 @@ public final class TaskListPanel extends ToggleDialog {
     }
 
     private void releaseReservation() {
-        final var task = workflow.snapshot().reservedTask();
+        final var snapshot = workflow.snapshot();
+        final var task = snapshot.reservedTask() != null ? snapshot.reservedTask() : snapshot.activeTask();
         if (task == null) {
             return;
         }
@@ -290,36 +305,80 @@ public final class TaskListPanel extends ToggleDialog {
             updateEnabledState();
             return;
         }
-        loading = true;
-        ++requestGeneration;
-        message.setText(tr("Releasing task {0}...", task.id()));
-        updateFromSnapshot(workflow.snapshot());
-        MainApplication.worker.execute(() -> {
-            Exception failure = null;
-            try {
-                TaskAPI.release(task.id());
-            } catch (IOException exception) {
-                failure = exception;
+        final var active = snapshot.activeTask() != null;
+        final var hasEdits = snapshot.editLayer() != null && snapshot.editLayer().getDataSet().requiresUploadToServer();
+        final var editLayerName = snapshot.editLayer() == null ? null : snapshot.editLayer().getName();
+        if (active) {
+            final var warning = hasEdits
+                    ? tr("Release task {0} without recording a result? Your OSM edits will remain in layer ''{1}'', "
+                            + "but they will no longer be associated with this MapRoulette task.", task.id(),
+                            snapshot.editLayer().getName())
+                    : tr("Release task {0} without recording a result? The task will return to the available pool.",
+                            task.id());
+            if (JOptionPane.showConfirmDialog(MainApplication.getMainFrame(), warning, tr("Release MapRoulette task"),
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+                return;
             }
-            final var releaseFailure = failure;
-            GuiHelper.runInEDT(() -> {
-                loading = false;
-                if (releaseFailure == null && isReserved(task.id())) {
-                    workflow.releaseReservation();
-                    clearTaskPreview();
+        }
+        final String baseUrl;
+        final String apiKey;
+        try {
+            baseUrl = snapshot.accountOwner().baseUrl();
+            apiKey = AuthenticationManager.getApiKey(baseUrl);
+        } catch (IOException | RuntimeException exception) {
+            message.setText(tr("Could not read the credential that owns this task."));
+            ExceptionDialogUtil.explainException(exception);
+            return;
+        }
+        loading = true;
+        final var generation = ++requestGeneration;
+        message.setText(tr("Releasing task {0}...", task.id()));
+        workflow.beginRelease(null);
+        updateFromSnapshot(workflow.snapshot());
+        try {
+            MainApplication.worker.execute(() -> {
+                Exception failure = null;
+                try {
+                    TaskAPI.release(task.id(), baseUrl, apiKey);
+                } catch (IOException | RuntimeException exception) {
+                    failure = exception;
                 }
-                if (destroyed) {
-                    return;
-                }
-                if (releaseFailure == null) {
-                    message.setText(tr("Reservation released."));
-                } else {
-                    message.setText(tr("Server release failed; the reservation remains active."));
-                    ExceptionDialogUtil.explainException(releaseFailure);
-                }
-                updateFromSnapshot(workflow.snapshot());
+                final var releaseFailure = failure;
+                GuiHelper.runInEDT(() -> finishRelease(task.id(), generation, active, hasEdits, editLayerName,
+                        releaseFailure));
             });
-        });
+        } catch (RuntimeException exception) {
+            finishRelease(task.id(), generation, active, hasEdits, editLayerName, exception);
+        }
+    }
+
+    private void finishRelease(long taskId, long generation, boolean active, boolean hasEdits, String editLayerName,
+            Exception failure) {
+        if (destroyed || generation != requestGeneration || workflow.state() != State.RELEASING) {
+            return;
+        }
+        final var retained = workflow.snapshot().reservedTask() != null ? workflow.snapshot().reservedTask()
+                : workflow.snapshot().activeTask();
+        if (retained == null || retained.id() != taskId) {
+            return;
+        }
+        loading = false;
+        if (failure == null) {
+            workflow.releaseSucceeded();
+            clearTaskPreview();
+            message.setText(active && hasEdits
+                    ? tr("Task released. Local OSM edits remain in layer ''{0}''.", editLayerName)
+                    : tr("Task released."));
+        } else {
+            workflow.releaseFailed();
+            final var restored = workflow.snapshot().reservedTask();
+            if (restored != null) {
+                startRefreshTimer(restored.id());
+            }
+            message.setText(tr("Server release failed; the task remains active."));
+            ExceptionDialogUtil.explainException(failure);
+        }
+        updateFromSnapshot(workflow.snapshot());
     }
 
     private void startTaskDownload() {
@@ -343,6 +402,32 @@ public final class TaskListPanel extends ToggleDialog {
                 MapRouletteTaskPreference.getPointRadius(), new TaskDownloadListener());
     }
 
+    private void redownloadActiveTask() {
+        final var snapshot = workflow.snapshot();
+        final var task = snapshot.activeTask();
+        if (task == null || snapshot.state() != State.ACTIVE_EDITING && !workflow.canRetryActiveRedownload()) {
+            return;
+        }
+        if (!isWorkflowAuthenticated()) {
+            message.setText(tr("Authenticate as the account that reserved this task before re-downloading it."));
+            updateEnabledState();
+            return;
+        }
+        if (snapshot.state() == State.ACTIVE_EDITING
+                && JOptionPane.showConfirmDialog(MainApplication.getMainFrame(),
+                        tr("Re-download current OSM data for task {0}? JOSM will merge server updates into layer ''{1}'' "
+                                + "and preserve your local edits.", task.id(), snapshot.editLayer().getName()),
+                        tr("Re-download MapRoulette task"), JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE) != JOptionPane.YES_OPTION) {
+            return;
+        }
+        loading = true;
+        message.setText(tr("Re-downloading OSM data for task {0}...", task.id()));
+        updateEnabledState();
+        taskDownloads.redownloadActive(MapRouletteTaskPreference.getGeometryPadding(),
+                MapRouletteTaskPreference.getPointRadius(), new ActiveRedownloadListener());
+    }
+
     private void finishTaskDownload(TaskDownloadService.Result result) {
         if (destroyed) {
             return;
@@ -352,18 +437,41 @@ public final class TaskListPanel extends ToggleDialog {
         MainApplication.getLayerManager().setActiveLayer(result.layer());
         final var primitives = TaskPrimitives.findPrimitives(result.layer().getDataSet(), result.primitiveIds());
         result.layer().getDataSet().setSelected(primitives);
-        if (MapRouletteTaskPreference.isAutoCenter()) {
-            TaskPreviewBounds.forTask(result.task()).ifPresent(bounds -> {
-                if (bounds.isCollapsed()) {
-                    MainApplication.getMap().mapView.zoomTo(bounds.getMax());
-                } else {
-                    MainApplication.getMap().mapView.zoomTo(bounds);
-                }
-            });
-        }
+        CurrentTaskZoom.zoom(result.task());
         message.setText(tr("Task {0} is ready for editing. Selected {1} referenced OSM primitives.",
                 result.task().id(), primitives.size()));
         updateFromSnapshot(workflow.snapshot());
+    }
+
+    private void finishActiveRedownload(TaskDownloadService.Result result) {
+        if (destroyed) {
+            return;
+        }
+        loading = false;
+        MainApplication.getLayerManager().setActiveLayer(result.layer());
+        final var primitives = TaskPrimitives.findPrimitives(result.layer().getDataSet(), result.primitiveIds());
+        result.layer().getDataSet().setSelected(primitives);
+        TaskEditTracker.getInstance().redownloaded(result.task(), result.layer());
+        CurrentTaskZoom.zoom(result.task());
+        message.setText(tr("Task {0} data was refreshed. Local edits were preserved.", result.task().id()));
+        updateFromSnapshot(workflow.snapshot());
+    }
+
+    private void finishActiveRedownloadCancellation(Task task) {
+        if (!destroyed) {
+            loading = false;
+            message.setText(tr("Re-download canceled. Task {0} remains active.", task.id()));
+            updateFromSnapshot(workflow.snapshot());
+        }
+    }
+
+    private void finishActiveRedownloadFailure(Task task, Exception exception) {
+        if (!destroyed) {
+            loading = false;
+            message.setText(tr("Re-download failed. Task {0} remains active; use Retry or Release.", task.id()));
+            updateFromSnapshot(workflow.snapshot());
+            ExceptionDialogUtil.explainException(exception);
+        }
     }
 
     private void finishTaskDownloadCancellation(Task task) {
@@ -399,15 +507,7 @@ public final class TaskListPanel extends ToggleDialog {
             layer.replaceTasks(List.of(task));
             layers.stream().skip(1).forEach(other -> other.replaceTasks(Collections.emptyList()));
         }
-        if (MapRouletteTaskPreference.isAutoCenter()) {
-            TaskPreviewBounds.forTask(task).ifPresent(bounds -> {
-                if (bounds.isCollapsed()) {
-                    MainApplication.getMap().mapView.zoomTo(bounds.getMax());
-                } else {
-                    MainApplication.getMap().mapView.zoomTo(bounds);
-                }
-            });
-        }
+        GuiHelper.runInEDT(() -> CurrentTaskZoom.zoom(task));
     }
 
     private void clearTaskPreview() {
@@ -446,7 +546,90 @@ public final class TaskListPanel extends ToggleDialog {
                 showAutomaticReservationOutcome(newSnapshot);
             }
             updateFromSnapshot(newSnapshot);
+            if (!Objects.equals(oldSnapshot.accountOwner(), newSnapshot.accountOwner())) {
+                refreshProgress(false);
+            } else if (oldSnapshot.state() == State.DISCONNECTED && newSnapshot.state() == State.CHALLENGE_IDLE) {
+                refreshProgress(false);
+            } else if (oldSnapshot.state() == State.SUBMITTING && newSnapshot.state() != State.SUBMITTING
+                    && newSnapshot.completedTaskId() != null) {
+                refreshProgress(true);
+            }
         }
+    }
+
+    private void refreshProgress(boolean refreshAccount) {
+        if (destroyed || MapRouletteConfig.getInstance() == null) {
+            return;
+        }
+        final var baseUrl = AuthenticationManager.normalizeBaseUrl(MapRouletteConfig.getBaseUrl());
+        final var current = AuthenticationManager.getAuthenticatedUser(baseUrl);
+        if (current == null) {
+            progressIdentity = null;
+            userProgress.reset();
+            return;
+        }
+        final var identity = new ProgressIdentity(baseUrl, current.id(), current.osmId());
+        if (!identity.equals(progressIdentity)) {
+            progressIdentity = identity;
+            userProgress.reset();
+        }
+        final var expectedUserId = current.id();
+        final var generation = ++progressGeneration;
+        userProgress.showLoading();
+        MainApplication.worker.execute(() -> {
+            try {
+                final var account = refreshAccount ? CurrentUserAPI.authenticateConfigured(baseUrl) : current;
+                final var progress = UserProgressAPI.fetch(baseUrl, account);
+                GuiHelper.runInEDT(() -> {
+                    final var authenticated = MapRouletteConfig.getInstance() == null ? null
+                            : AuthenticationManager.getAuthenticatedUser(baseUrl);
+                    if (!destroyed && generation == progressGeneration && authenticated != null
+                            && identity.equals(progressIdentity) && authenticated.id() == expectedUserId
+                            && authenticated.osmId() == identity.osmUserId()
+                            && baseUrl.equals(AuthenticationManager.normalizeBaseUrl(MapRouletteConfig.getBaseUrl()))) {
+                        userProgress.setProgress(progress);
+                    }
+                });
+            } catch (IOException | RuntimeException exception) {
+                Logging.info("MapRoulette progress was unavailable: " + exception.getMessage());
+                GuiHelper.runInEDT(() -> {
+                    if (!destroyed && generation == progressGeneration) {
+                        userProgress.showUnavailable();
+                        updateEnabledState();
+                    }
+                });
+            }
+        });
+    }
+
+    private void authenticationChanged() {
+        if (destroyed) {
+            return;
+        }
+        if (MapRouletteConfig.getInstance() == null) {
+            ++progressGeneration;
+            progressIdentity = null;
+            userProgress.reset();
+            return;
+        }
+        final var baseUrl = AuthenticationManager.normalizeBaseUrl(MapRouletteConfig.getBaseUrl());
+        final var account = AuthenticationManager.getAuthenticatedUser(baseUrl);
+        if (account == null) {
+            ++progressGeneration;
+            progressIdentity = null;
+            userProgress.reset();
+        } else {
+            final var identity = new ProgressIdentity(baseUrl, account.id(), account.osmId());
+            if (!identity.equals(progressIdentity)) {
+                ++progressGeneration;
+                progressIdentity = identity;
+                userProgress.reset();
+                if (workflow.isOwnedBy(baseUrl, account)) {
+                    refreshProgress(false);
+                }
+            }
+        }
+        updateEnabledState();
     }
 
     private void presentReservedPreview(Snapshot snapshot) {
@@ -531,10 +714,12 @@ public final class TaskListPanel extends ToggleDialog {
         randomMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);
         nearbyMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);
         startDownloadAction.setEnabled(authenticated && !loading && snapshot.state() == State.RESERVED_PREVIEW);
-        retryDownloadAction.setEnabled(authenticated && !loading && snapshot.state() == State.RECOVERABLE_ERROR
-                && snapshot.reservedTask() != null);
-        releaseAction.setEnabled(authenticated && !loading && (snapshot.state() == State.RESERVED_PREVIEW
-                || snapshot.state() == State.RECOVERABLE_ERROR && snapshot.reservedTask() != null));
+        retryDownloadAction.putValue(AbstractAction.NAME,
+                snapshot.state() == State.ACTIVE_EDITING ? tr("Re-download")
+                        : workflow.canRetryActiveRedownload() ? tr("Retry Re-download") : tr("Retry Download"));
+        retryDownloadAction.setEnabled(authenticated && !loading && (snapshot.state() == State.ACTIVE_EDITING
+                || workflow.canRetryInitialDownload() || workflow.canRetryActiveRedownload()));
+        releaseAction.setEnabled(authenticated && !loading && workflow.canReleaseTask());
         showInstructionsAction.updateEnabledState();
     }
 
@@ -557,7 +742,9 @@ public final class TaskListPanel extends ToggleDialog {
     public void destroy() {
         destroyed = true;
         ++requestGeneration;
+        ++progressGeneration;
         workflow.removePropertyChangeListener(workflowListener);
+        AuthenticationManager.removeAuthenticationListener(authenticationListener);
         if (instructionsDialog != null) {
             instructionsDialog.dispose();
         }
@@ -590,7 +777,11 @@ public final class TaskListPanel extends ToggleDialog {
 
         @Override
         public void actionPerformed(ActionEvent event) {
-            startTaskDownload();
+            if (workflow.state() == State.ACTIVE_EDITING || workflow.canRetryActiveRedownload()) {
+                redownloadActiveTask();
+            } else {
+                startTaskDownload();
+            }
         }
     }
 
@@ -608,6 +799,23 @@ public final class TaskListPanel extends ToggleDialog {
         @Override
         public void failed(Task reservedTask, Exception exception) {
             finishTaskDownloadFailure(reservedTask, exception);
+        }
+    }
+
+    private final class ActiveRedownloadListener implements TaskDownloadService.Listener {
+        @Override
+        public void completed(TaskDownloadService.Result result) {
+            finishActiveRedownload(result);
+        }
+
+        @Override
+        public void canceled(Task task) {
+            finishActiveRedownloadCancellation(task);
+        }
+
+        @Override
+        public void failed(Task task, Exception exception) {
+            finishActiveRedownloadFailure(task, exception);
         }
     }
 
@@ -658,5 +866,8 @@ public final class TaskListPanel extends ToggleDialog {
             final var snapshot = workflow.snapshot();
             setEnabled(!snapshot.suspended() && snapshot.activeTask() != null);
         }
+    }
+
+    private record ProgressIdentity(String baseUrl, long mapRouletteUserId, long osmUserId) {
     }
 }

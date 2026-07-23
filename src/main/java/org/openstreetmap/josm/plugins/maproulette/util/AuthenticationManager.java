@@ -11,6 +11,7 @@ import org.openstreetmap.josm.data.UserIdentityManager;
 import org.openstreetmap.josm.plugins.maproulette.api.UnauthorizedException;
 import org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser;
 import org.openstreetmap.josm.spi.preferences.Config;
+import org.openstreetmap.josm.tools.ListenerList;
 import org.openstreetmap.josm.tools.Utils;
 
 /**
@@ -23,6 +24,7 @@ public final class AuthenticationManager {
     private static final String AUTOMATIC_PREFIX = "maproulette.openstreetmap.";
     private static final String LEGACY_AUTOMATIC_PREFIX = "maproulette.openstreetmap";
     private static final Map<String, String> SESSION_DIRECT_KEYS = new ConcurrentHashMap<>();
+    private static final ListenerList<Runnable> AUTHENTICATION_LISTENERS = ListenerList.create();
     private static volatile AuthenticationContext authenticatedContext;
 
     static {
@@ -147,6 +149,7 @@ public final class AuthenticationManager {
             AuthenticatedUser account) {
         authenticatedContext = new AuthenticationContext(normalizeBaseUrl(baseUrl), mode, currentOsmUserId(mode),
                 fingerprint(apiKey), account);
+        notifyAuthenticationChanged();
     }
 
     public static AuthenticatedUser getAuthenticatedUser(String baseUrl) {
@@ -164,7 +167,18 @@ public final class AuthenticationManager {
     }
 
     public static void clearActiveAuthentication() {
-        authenticatedContext = null;
+        if (authenticatedContext != null) {
+            authenticatedContext = null;
+            notifyAuthenticationChanged();
+        }
+    }
+
+    public static void addAuthenticationListener(Runnable listener) {
+        AUTHENTICATION_LISTENERS.addListener(listener);
+    }
+
+    public static void removeAuthenticationListener(Runnable listener) {
+        AUTHENTICATION_LISTENERS.removeListener(listener);
     }
 
     public static void serverChanged(String oldBaseUrl, String newBaseUrl) {
@@ -182,7 +196,11 @@ public final class AuthenticationManager {
             Config.getPref().put(DIRECT_PREFIX + directScope + ".api_key", null);
         }
         OsmPreferenceUtils.clearCachedKey(normalized, rejectedKey);
-        clearActiveAuthentication();
+        final var context = authenticatedContext;
+        if (context != null && context.baseUrl().equals(normalized)
+                && context.keyFingerprint().equals(fingerprint(rejectedKey))) {
+            clearActiveAuthentication();
+        }
     }
 
     public static void clearCurrentCredential(String baseUrl) {
@@ -218,6 +236,10 @@ public final class AuthenticationManager {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    private static void notifyAuthenticationChanged() {
+        AUTHENTICATION_LISTENERS.fireEvent(Runnable::run);
     }
 
     private record AuthenticationContext(String baseUrl, AuthenticationMode mode, long osmUserId, String keyFingerprint,

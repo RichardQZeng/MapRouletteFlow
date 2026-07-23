@@ -91,4 +91,16 @@ class AuthenticationManagerTest {
         UserIdentityManager.getInstance().setFullyIdentified("other", otherUser);
         assertNull(AuthenticationManager.getAuthenticatedUser(SERVER_A));
     }
+
+    @Test
+    void staleUnauthorizedResponseDoesNotClearRotatedAccount() {
+        final var account = new AuthenticatedUser(42, 1234, "Mapper", 135);
+        AuthenticationManager.setMode(SERVER_A, AuthenticationMode.DIRECT);
+        AuthenticationManager.setDirectApiKey(SERVER_A, "new-key", false);
+        AuthenticationManager.setAuthenticated(SERVER_A, AuthenticationMode.DIRECT, "new-key", account);
+
+        AuthenticationManager.handleUnauthorized(SERVER_A, "old-key");
+
+        assertEquals(account, AuthenticationManager.getAuthenticatedUser(SERVER_A));
+    }
 }

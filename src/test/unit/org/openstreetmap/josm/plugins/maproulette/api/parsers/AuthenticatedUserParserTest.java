@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
+import org.openstreetmap.josm.plugins.maproulette.api.enums.Achievement;
 import org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser;
 
 class AuthenticatedUserParserTest {
@@ -32,8 +33,31 @@ class AuthenticatedUserParserTest {
         assertEquals("MapRoulette returned an invalid account response", malformed.getMessage());
     }
 
+    @Test
+    void parsesKnownAchievementsAndIgnoresDuplicatesAndFutureIds() throws IOException {
+        final var response = """
+                {"id":42,"score":135,"achievements":[1,7,7,21,22,999999999999999999999],
+                 "osmProfile":{"id":1234,"displayName":"Mapper"}}
+                """;
+
+        assertEquals(java.util.List.of(Achievement.MAPPED_ROADS, Achievement.POINTS_100,
+                Achievement.CHALLENGE_COMPLETED), parse(response).achievements());
+    }
+
+    @Test
+    void treatsMissingNullAndEmptyAchievementsAsNone() throws IOException {
+        assertEquals(java.util.List.of(), parse(accountJson("")).achievements());
+        assertEquals(java.util.List.of(), parse(accountJson(",\"achievements\":null")).achievements());
+        assertEquals(java.util.List.of(), parse(accountJson(",\"achievements\":[]")).achievements());
+    }
+
     private static AuthenticatedUser parse(String json) throws IOException {
         return AuthenticatedUserParser.parse(
                 new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String accountJson(String addition) {
+        return "{\"id\":42,\"score\":135,\"osmProfile\":{\"id\":1234,\"displayName\":\"Mapper\"}"
+                + addition + "}";
     }
 }

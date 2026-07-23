@@ -49,19 +49,23 @@ class WorkflowControllerTest {
         expected.put(State.DISCONNECTED, EnumSet.of(State.CHALLENGE_IDLE));
         expected.put(State.CHALLENGE_IDLE, EnumSet.of(State.DISCONNECTED, State.RESERVED_PREVIEW));
         expected.put(State.RESERVED_PREVIEW,
-                EnumSet.of(State.CHALLENGE_IDLE, State.STARTING_DOWNLOAD, State.RECOVERABLE_ERROR));
+                EnumSet.of(State.STARTING_DOWNLOAD, State.RELEASING, State.RECOVERABLE_ERROR));
         expected.put(State.STARTING_DOWNLOAD,
                 EnumSet.of(State.RESERVED_PREVIEW, State.ACTIVE_EDITING, State.RECOVERABLE_ERROR));
-        expected.put(State.ACTIVE_EDITING, EnumSet.of(State.COMPLETION_DRAFT, State.RECOVERABLE_ERROR));
+        expected.put(State.ACTIVE_EDITING,
+                EnumSet.of(State.REDOWNLOADING, State.COMPLETION_DRAFT, State.RELEASING, State.RECOVERABLE_ERROR));
+        expected.put(State.REDOWNLOADING, EnumSet.of(State.ACTIVE_EDITING, State.RECOVERABLE_ERROR));
         expected.put(State.COMPLETION_DRAFT, EnumSet.of(State.ACTIVE_EDITING, State.WAITING_FOR_UPLOAD,
-                State.SUBMITTING, State.RECOVERABLE_ERROR));
+                State.SUBMITTING, State.RELEASING, State.RECOVERABLE_ERROR));
         expected.put(State.WAITING_FOR_UPLOAD,
                 EnumSet.of(State.COMPLETION_DRAFT, State.SUBMITTING, State.RECOVERABLE_ERROR));
         expected.put(State.SUBMITTING,
                 EnumSet.of(State.CHALLENGE_IDLE, State.RESERVED_PREVIEW, State.RECOVERABLE_ERROR));
+        expected.put(State.RELEASING, EnumSet.of(State.CHALLENGE_IDLE, State.RESERVED_PREVIEW,
+                State.ACTIVE_EDITING, State.COMPLETION_DRAFT, State.RECOVERABLE_ERROR));
         expected.put(State.RECOVERABLE_ERROR, EnumSet.of(State.CHALLENGE_IDLE, State.RESERVED_PREVIEW,
-                State.STARTING_DOWNLOAD, State.ACTIVE_EDITING, State.COMPLETION_DRAFT, State.WAITING_FOR_UPLOAD,
-                State.SUBMITTING));
+                State.STARTING_DOWNLOAD, State.ACTIVE_EDITING, State.REDOWNLOADING, State.COMPLETION_DRAFT,
+                State.WAITING_FOR_UPLOAD, State.SUBMITTING, State.RELEASING));
 
         for (var from : State.values()) {
             for (var to : State.values()) {
@@ -131,6 +135,105 @@ class WorkflowControllerTest {
         assertEquals(State.CHALLENGE_IDLE, workflow.state());
         assertTrue(workflow.getLockedTasks().isEmpty());
         assertTrue(workflow.getCompletionDrafts().isEmpty());
+    }
+
+    @Test
+    void activeRedownloadTransitionsRetainExactTaskAndLayer() {
+        final var task = enterReservedWorkflow();
+        final var layer = layer();
+        workflow.beginDownload(null);
+        workflow.activateTask(task, layer);
+
+        workflow.beginRedownload(null);
+        assertEquals(State.REDOWNLOADING, workflow.state());
+        assertSame(task, workflow.snapshot().activeTask());
+        assertSame(layer, workflow.snapshot().editLayer());
+        workflow.cancelRedownload();
+        assertEquals(State.ACTIVE_EDITING, workflow.state());
+
+        workflow.beginRedownload(null);
+        workflow.failRecoverably();
+        assertTrue(workflow.canRetryActiveRedownload());
+        assertFalse(workflow.canRetryInitialDownload());
+        workflow.retryRedownload(null);
+        workflow.redownloadSucceeded(task, layer);
+        assertEquals(State.ACTIVE_EDITING, workflow.state());
+        assertSame(layer, workflow.snapshot().editLayer());
+    }
+
+    @Test
+    void releaseFailureRestoresPreviewActiveDraftAndRecoverableContext() {
+        enterReservedWorkflow();
+        assertReleaseFailureRestoresSnapshot();
+
+        final var task = workflow.snapshot().reservedTask();
+        workflow.beginDownload(null);
+        workflow.failRecoverably();
+        assertTrue(workflow.canRetryInitialDownload());
+        assertReleaseFailureRestoresSnapshot();
+
+        workflow.retryDownload(null);
+        final var layer = layer();
+        workflow.activateTask(task, layer);
+        assertReleaseFailureRestoresSnapshot();
+
+        workflow.beginRedownload(null);
+        workflow.failRecoverably();
+        assertTrue(workflow.canRetryActiveRedownload());
+        assertReleaseFailureRestoresSnapshot();
+        workflow.retryRedownload(null);
+        workflow.redownloadSucceeded(task, layer);
+
+        workflow.draftCompletion(draft(task));
+        assertReleaseFailureRestoresSnapshot();
+        workflow.failRecoverably();
+        assertReleaseFailureRestoresSnapshot();
+    }
+
+    @Test
+    void releaseSuccessClearsWorkflowReferencesWithoutCompletingOrChangingLayerData() {
+        final var task = enterReservedWorkflow();
+        final var layer = layer();
+        final var data = layer.getDataSet();
+        workflow.beginDownload(null);
+        workflow.activateTask(task, layer);
+        workflow.draftCompletion(draft(task));
+
+        workflow.beginRelease(null);
+        assertEquals(State.RELEASING, workflow.state());
+        assertThrows(IllegalStateException.class, workflow::beginSubmission);
+        workflow.releaseSucceeded();
+
+        final var snapshot = workflow.snapshot();
+        assertEquals(State.CHALLENGE_IDLE, snapshot.state());
+        assertNull(snapshot.reservedTask());
+        assertNull(snapshot.activeTask());
+        assertNull(snapshot.completionDraft());
+        assertNull(snapshot.editLayer());
+        assertNull(snapshot.completedTaskId());
+        assertTrue(snapshot.lockedTasks().isEmpty());
+        assertSame(data, layer.getDataSet());
+    }
+
+    @Test
+    void releaseIsForbiddenDuringUploadAndSubmissionIncludingRecoverableSubmission() {
+        final var task = enterReservedWorkflow();
+        workflow.beginDownload(null);
+        workflow.activateTask(task, layer());
+        workflow.draftCompletion(draft(task));
+        workflow.waitForUpload(() -> { });
+
+        assertFalse(workflow.canReleaseTask());
+        assertThrows(IllegalStateException.class, () -> workflow.beginRelease(null));
+        workflow.beginSubmission();
+        assertFalse(workflow.canReleaseTask());
+        assertThrows(IllegalStateException.class, () -> workflow.beginRelease(null));
+        workflow.statusCommitted(null);
+        assertTrue(workflow.snapshot().completionStatusCommitted());
+        assertFalse(workflow.canReleaseTask());
+        workflow.failRecoverably();
+        assertFalse(workflow.canReleaseTask());
+        assertThrows(IllegalStateException.class, () -> workflow.beginRelease(null));
     }
 
     @Test
@@ -221,6 +324,20 @@ class WorkflowControllerTest {
     }
 
     @Test
+    void releaseOperationCleanupRunsOnceOnFailureAndSuccess() {
+        final var cleanup = new AtomicInteger();
+        enterReservedWorkflow();
+        workflow.beginRelease(cleanup::incrementAndGet);
+        workflow.releaseFailed();
+        assertEquals(1, cleanup.get());
+
+        workflow.beginRelease(cleanup::incrementAndGet);
+        workflow.releaseSucceeded();
+        workflow.shutdown();
+        assertEquals(2, cleanup.get());
+    }
+
+    @Test
     void notificationFromWorkerThreadRunsOnSwingEdt() throws InterruptedException {
         final var notified = new AtomicBoolean();
         final var listener = new AtomicBoolean();
@@ -288,6 +405,16 @@ class WorkflowControllerTest {
         assertEquals(before.reservedTask(), workflow.snapshot().reservedTask());
         assertEquals(before.activeTask(), workflow.snapshot().activeTask());
         assertEquals(before.completionDraft(), workflow.snapshot().completionDraft());
+    }
+
+    private void assertReleaseFailureRestoresSnapshot() {
+        final var before = workflow.snapshot();
+        assertTrue(workflow.canReleaseTask());
+        workflow.beginRelease(null);
+        assertEquals(State.RELEASING, workflow.state());
+        assertFalse(workflow.canReleaseTask());
+        workflow.releaseFailed();
+        assertEquals(before, workflow.snapshot());
     }
 
     private Task enterReservedWorkflow() {

@@ -52,7 +52,7 @@ class TaskListPanelTest {
             assertTrue(buttonTexts.contains("Random"));
             assertTrue(buttonTexts.contains("Nearby"));
             assertTrue(buttonTexts.contains("Start & Download"));
-            assertTrue(buttonTexts.contains("Retry"));
+            assertTrue(buttonTexts.contains("Retry Download"));
             assertTrue(buttonTexts.contains("Release"));
             assertTrue(buttonTexts.contains("Instructions..."));
             assertTrue(buttonTexts.contains("I fixed it!"));

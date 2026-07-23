@@ -58,7 +58,12 @@ public final class HttpClientUtils {
      * @return configured client
      */
     public static HttpClient getWithApiKey(String url, String apiKey) {
-        final var client = HttpClient.create(safeUrl(url, Collections.emptyMap()));
+        return getWithApiKey(url, Collections.emptyMap(), apiKey);
+    }
+
+    /** Create a GET request with encoded query parameters and an explicit key. */
+    public static HttpClient getWithApiKey(String url, Map<String, String> queryParameters, String apiKey) {
+        final var client = HttpClient.create(safeUrl(url, queryParameters));
         client.setHeader("apiKey", apiKey);
         return client;
     }

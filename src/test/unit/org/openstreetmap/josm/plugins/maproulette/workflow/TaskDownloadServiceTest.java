@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.SwingUtilities;
@@ -17,7 +18,9 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.openstreetmap.josm.data.coor.LatLon;
 import org.openstreetmap.josm.data.osm.DataSet;
+import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Challenge;
@@ -101,6 +104,88 @@ class TaskDownloadServiceTest {
     }
 
     @Test
+    void activeRedownloadUsesExactLayerWithoutStartingTaskAgainAndPreservesLocalData() {
+        final var activeLayer = activateReservedTask();
+        final var data = activeLayer.getDataSet();
+        final var localNode = new Node(new LatLon(1, 2));
+        data.addPrimitive(localNode);
+        final var starts = new AtomicInteger();
+        final var target = new AtomicReference<OsmDataLayer>();
+        final var completed = new AtomicReference<TaskDownloadService.Result>();
+        final TaskDownloadService.OsmDownloader downloader = new TaskDownloadService.OsmDownloader() {
+            @Override
+            public DownloadOutcome download(org.openstreetmap.josm.data.Bounds bounds,
+                    TaskDownloadService.Operation operation) {
+                throw new AssertionError("Initial download path was used");
+            }
+
+            @Override
+            public DownloadOutcome redownload(org.openstreetmap.josm.data.Bounds bounds, OsmDataLayer exactLayer,
+                    TaskDownloadService.Operation operation) {
+                target.set(exactLayer);
+                return DownloadOutcome.completed(exactLayer);
+            }
+        };
+        final var service = service(id -> {
+            starts.incrementAndGet();
+            return task("unexpected-start");
+        }, downloader);
+
+        service.redownloadActive(10, 100, listener(completed, new AtomicReference<>()));
+
+        assertEquals(0, starts.get());
+        assertEquals(State.ACTIVE_EDITING, workflow.state());
+        assertSame(reservedTask, workflow.snapshot().activeTask());
+        assertSame(activeLayer, target.get());
+        assertSame(activeLayer, completed.get().layer());
+        assertSame(data, activeLayer.getDataSet());
+        assertTrue(data.containsNode(localNode));
+    }
+
+    @Test
+    void activeRedownloadCancellationReturnsToEditingWithExactContext() {
+        final var activeLayer = activateReservedTask();
+        final var canceled = new AtomicBoolean();
+        final var service = service(id -> task("unexpected-start"),
+                (bounds, operation) -> DownloadOutcome.canceledDownload());
+
+        service.redownloadActive(10, 100, new ListenerAdapter() {
+            @Override
+            public void canceled(Task task) {
+                canceled.set(true);
+            }
+        });
+
+        assertTrue(canceled.get());
+        assertEquals(State.ACTIVE_EDITING, workflow.state());
+        assertSame(reservedTask, workflow.snapshot().activeTask());
+        assertSame(activeLayer, workflow.snapshot().editLayer());
+    }
+
+    @Test
+    void activeRedownloadWrongLayerFailsRetainsContextAndCanRetry() {
+        final var activeLayer = activateReservedTask();
+        final var failure = new AtomicReference<Exception>();
+        final var wrongLayer = layer();
+
+        service(id -> task("unexpected-start"),
+                (bounds, operation) -> DownloadOutcome.completed(wrongLayer))
+                .redownloadActive(10, 100, listener(new AtomicReference<>(), failure));
+
+        assertEquals(State.RECOVERABLE_ERROR, workflow.state());
+        assertTrue(workflow.canRetryActiveRedownload());
+        assertSame(reservedTask, workflow.snapshot().activeTask());
+        assertSame(activeLayer, workflow.snapshot().editLayer());
+        assertEquals("JOSM did not re-download into the active task edit layer", failure.get().getMessage());
+
+        service(id -> task("unexpected-start"),
+                (bounds, operation) -> DownloadOutcome.completed(activeLayer))
+                .redownloadActive(10, 100, listener(new AtomicReference<>(), new AtomicReference<>()));
+        assertEquals(State.ACTIVE_EDITING, workflow.state());
+        assertSame(activeLayer, workflow.snapshot().editLayer());
+    }
+
+    @Test
     void networkAndDownloadRunOffEdtWhileCallbackRunsOnEdt() throws InterruptedException {
         final var starterOffEdt = new AtomicBoolean();
         final var downloaderOffEdt = new AtomicBoolean();
@@ -133,6 +218,13 @@ class TaskDownloadServiceTest {
             TaskDownloadService.OsmDownloader downloader) {
         return new TaskDownloadService(workflow, starter, downloader, task -> List.of(), Runnable::run,
                 Runnable::run);
+    }
+
+    private OsmDataLayer activateReservedTask() {
+        final var activeLayer = layer();
+        workflow.beginDownload(null);
+        workflow.activateTask(reservedTask, activeLayer);
+        return activeLayer;
     }
 
     private static TaskDownloadService.Listener listener(AtomicReference<TaskDownloadService.Result> completed,

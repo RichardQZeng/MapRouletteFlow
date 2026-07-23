@@ -3,7 +3,10 @@ package org.openstreetmap.josm.plugins.maproulette.api.parsers;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.LinkedHashSet;
+import java.util.List;
 
+import org.openstreetmap.josm.plugins.maproulette.api.enums.Achievement;
 import org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser;
 
 import jakarta.json.Json;
@@ -29,8 +32,11 @@ public final class AuthenticatedUserParser {
         Long osmId = null;
         Long score = null;
         String displayName = null;
+        final var achievements = new LinkedHashSet<Achievement>();
         var objectDepth = 0;
+        var arrayDepth = 0;
         var osmProfileDepth = -1;
+        var achievementsDepth = -1;
         String key = null;
         try (var parser = Json.createParser(inputStream)) {
             while (parser.hasNext()) {
@@ -50,10 +56,29 @@ public final class AuthenticatedUserParser {
                     objectDepth--;
                     key = null;
                 }
-                case START_ARRAY, END_ARRAY -> key = null;
+                case START_ARRAY -> {
+                    arrayDepth++;
+                    if (objectDepth == 1 && arrayDepth == 1 && "achievements".equals(key)) {
+                        achievementsDepth = arrayDepth;
+                    }
+                    key = null;
+                }
+                case END_ARRAY -> {
+                    if (arrayDepth == achievementsDepth) {
+                        achievementsDepth = -1;
+                    }
+                    arrayDepth--;
+                    key = null;
+                }
                 case KEY_NAME -> key = parser.getString();
                 case VALUE_NUMBER -> {
-                    if (objectDepth == 1 && "id".equals(key)) {
+                    if (objectDepth == 1 && arrayDepth == achievementsDepth) {
+                        try {
+                            Achievement.fromApiId(parser.getBigDecimal().intValueExact()).ifPresent(achievements::add);
+                        } catch (ArithmeticException exception) {
+                            // Ignore unknown numeric IDs that cannot be represented by this client.
+                        }
+                    } else if (objectDepth == 1 && "id".equals(key)) {
                         id = parser.getLong();
                     } else if (objectDepth == 1 && "score".equals(key)) {
                         score = parser.getLong();
@@ -77,7 +102,7 @@ public final class AuthenticatedUserParser {
         if (id == null || osmId == null || score == null || displayName == null || displayName.isEmpty()) {
             throw invalidResponse();
         }
-        return new AuthenticatedUser(id, osmId, displayName, score);
+        return new AuthenticatedUser(id, osmId, displayName, score, List.copyOf(achievements));
     }
 
     private static IOException invalidResponse() {

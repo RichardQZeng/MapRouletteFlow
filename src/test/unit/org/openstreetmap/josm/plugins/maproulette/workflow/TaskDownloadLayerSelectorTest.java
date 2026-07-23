@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.DownloadPolicy;
+import org.openstreetmap.josm.gui.layer.MainLayerManager;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 
@@ -43,6 +44,36 @@ class TaskDownloadLayerSelectorTest {
                 TaskDownloadLayerSelector.resolveResult(List.of(existing), existing, existing, List.of(existing)));
         assertSame(created,
                 TaskDownloadLayerSelector.resolveResult(List.of(existing), null, created, List.of(existing, created)));
+    }
+
+    @Test
+    void exactResolutionNeverSubstitutesAnotherLayer() {
+        final var expected = layer("expected");
+        final var other = layer("other");
+
+        assertSame(expected, TaskDownloadLayerSelector.resolveExact(expected, expected, List.of(expected, other)));
+        assertNull(TaskDownloadLayerSelector.resolveExact(expected, other, List.of(expected, other)));
+        assertNull(TaskDownloadLayerSelector.resolveExact(expected, expected, List.of(other)));
+    }
+
+    @Test
+    void exactPreparationActivatesTheRetainedLayer() {
+        final var layerManager = new MainLayerManager();
+        final var expected = layer("expected");
+        final var other = layer("other");
+        try {
+            layerManager.addLayer(expected);
+            layerManager.addLayer(other);
+            layerManager.setActiveLayer(other);
+
+            final var plan = TaskDownloadLayerSelector.prepareExact(layerManager, expected);
+
+            assertSame(expected, plan.target());
+            assertSame(expected, layerManager.getActiveLayer());
+            assertSame(expected, layerManager.getEditLayer());
+        } finally {
+            layerManager.resetState();
+        }
     }
 
     private static OsmDataLayer layer(String name) {

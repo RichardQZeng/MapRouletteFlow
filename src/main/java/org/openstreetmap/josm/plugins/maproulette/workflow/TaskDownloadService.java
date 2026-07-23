@@ -74,6 +74,28 @@ public final class TaskDownloadService {
         }
     }
 
+    /** Download fresh OSM data for the active task into its exact retained edit layer. */
+    public void redownloadActive(int geometryPaddingPercent, int pointRadiusMeters, Listener listener) {
+        Objects.requireNonNull(listener);
+        final var snapshot = workflow.snapshot();
+        final var activeTask = Objects.requireNonNull(snapshot.activeTask(), "No active task is retained");
+        final var editLayer = Objects.requireNonNull(snapshot.editLayer(), "No active task edit layer is retained");
+        final var operation = new Operation();
+        if (snapshot.state() == State.ACTIVE_EDITING) {
+            workflow.beginRedownload(operation::cancel);
+        } else if (workflow.canRetryActiveRedownload()) {
+            workflow.retryRedownload(operation::cancel);
+        } else {
+            throw new IllegalStateException("An active task re-download cannot start from the current workflow");
+        }
+        try {
+            worker.execute(() -> runRedownload(activeTask, editLayer, geometryPaddingPercent, pointRadiusMeters,
+                    operation, listener));
+        } catch (RuntimeException exception) {
+            finishRedownloadFailure(activeTask, editLayer, operation, listener, exception);
+        }
+    }
+
     private void run(Task reservedTask, int geometryPaddingPercent, int pointRadiusMeters, Operation operation,
             Listener listener) {
         try {
@@ -99,6 +121,32 @@ public final class TaskDownloadService {
             finishCanceled(reservedTask, operation, listener);
         } catch (Exception exception) {
             finishFailure(reservedTask, operation, listener, exception);
+        }
+    }
+
+    private void runRedownload(Task activeTask, OsmDataLayer editLayer, int geometryPaddingPercent,
+            int pointRadiusMeters, Operation operation, Listener listener) {
+        try {
+            final var bounds = TaskDownloadBounds.forTask(activeTask, geometryPaddingPercent, pointRadiusMeters)
+                    .orElseThrow(() -> new IOException("The task has no usable geometry or location to download"));
+            final var outcome = downloader.redownload(bounds, editLayer, operation);
+            if (operation.isCanceled() || outcome.canceled()) {
+                finishRedownloadCanceled(activeTask, editLayer, operation, listener);
+                return;
+            }
+            if (outcome.layer() != editLayer) {
+                throw new IOException("JOSM did not re-download into the active task edit layer");
+            }
+            final var primitiveIds = primitiveIdResolver.apply(activeTask);
+            finishRedownloadSuccess(activeTask, editLayer, operation, listener,
+                    new Result(activeTask, bounds, editLayer, primitiveIds));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            finishRedownloadCanceled(activeTask, editLayer, operation, listener);
+        } catch (CancellationException exception) {
+            finishRedownloadCanceled(activeTask, editLayer, operation, listener);
+        } catch (Exception exception) {
+            finishRedownloadFailure(activeTask, editLayer, operation, listener, exception);
         }
     }
 
@@ -144,10 +192,61 @@ public final class TaskDownloadService {
         });
     }
 
+    private void finishRedownloadSuccess(Task activeTask, OsmDataLayer editLayer, Operation operation,
+            Listener listener, Result result) {
+        uiExecutor.accept(() -> {
+            if (!isCurrentRedownload(activeTask, editLayer)) {
+                return;
+            }
+            if (operation.isCanceled()) {
+                workflow.cancelRedownload();
+                listener.canceled(activeTask);
+                return;
+            }
+            operation.finish();
+            workflow.redownloadSucceeded(activeTask, editLayer);
+            listener.completed(result);
+        });
+    }
+
+    private void finishRedownloadCanceled(Task activeTask, OsmDataLayer editLayer, Operation operation,
+            Listener listener) {
+        uiExecutor.accept(() -> {
+            if (!isCurrentRedownload(activeTask, editLayer)) {
+                return;
+            }
+            workflow.cancelRedownload();
+            listener.canceled(activeTask);
+        });
+    }
+
+    private void finishRedownloadFailure(Task activeTask, OsmDataLayer editLayer, Operation operation,
+            Listener listener, Exception exception) {
+        uiExecutor.accept(() -> {
+            if (!isCurrentRedownload(activeTask, editLayer)) {
+                return;
+            }
+            if (operation.isCanceled()) {
+                workflow.cancelRedownload();
+                listener.canceled(activeTask);
+                return;
+            }
+            operation.finish();
+            workflow.failRecoverably();
+            listener.failed(activeTask, exception);
+        });
+    }
+
     private boolean isCurrentDownload(Task task) {
         final var snapshot = workflow.snapshot();
         return snapshot.state() == State.STARTING_DOWNLOAD && snapshot.reservedTask() != null
                 && snapshot.reservedTask().id() == task.id();
+    }
+
+    private boolean isCurrentRedownload(Task task, OsmDataLayer layer) {
+        final var snapshot = workflow.snapshot();
+        return snapshot.state() == State.REDOWNLOADING && snapshot.activeTask() != null
+                && snapshot.activeTask().id() == task.id() && snapshot.editLayer() == layer;
     }
 
     /** Result delivered only after JOSM has merged into or created the actual edit layer. */
@@ -177,6 +276,10 @@ public final class TaskDownloadService {
     @FunctionalInterface
     interface OsmDownloader {
         DownloadOutcome download(Bounds bounds, Operation operation) throws Exception;
+
+        default DownloadOutcome redownload(Bounds bounds, OsmDataLayer target, Operation operation) throws Exception {
+            return download(bounds, operation);
+        }
     }
 
     record DownloadOutcome(OsmDataLayer layer, boolean canceled) {
@@ -232,8 +335,21 @@ public final class TaskDownloadService {
     private static final class JosmOsmDownloader implements OsmDownloader {
         @Override
         public DownloadOutcome download(Bounds bounds, Operation operation) throws Exception {
+            return download(bounds, null, operation);
+        }
+
+        @Override
+        public DownloadOutcome redownload(Bounds bounds, OsmDataLayer target, Operation operation) throws Exception {
+            return download(bounds, Objects.requireNonNull(target), operation);
+        }
+
+        private DownloadOutcome download(Bounds bounds, OsmDataLayer exactTarget, Operation operation)
+                throws Exception {
             if (SwingUtilities.isEventDispatchThread()) {
                 throw new IllegalStateException("OSM downloads must not run on the Swing event dispatch thread");
+            }
+            if (exactTarget != null) {
+                return downloadIsolated(bounds, exactTarget, operation);
             }
             final var layerManager = MainApplication.getLayerManager();
             final var plan = GuiHelper.runInEDTAndWaitAndReturn(() -> TaskDownloadLayerSelector.prepare(layerManager));
@@ -265,6 +381,59 @@ public final class TaskDownloadService {
                 }
                 return DownloadOutcome.completed(layer);
             } finally {
+                GuiHelper.runInEDT(monitor::close);
+            }
+        }
+
+        private DownloadOutcome downloadIsolated(Bounds bounds, OsmDataLayer target, Operation operation)
+                throws Exception {
+            final var layerManager = MainApplication.getLayerManager();
+            GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                TaskDownloadLayerSelector.prepareExact(layerManager, target);
+                return null;
+            });
+            final var monitor = GuiHelper.runInEDTAndWaitAndReturn(
+                    () -> new PleaseWaitProgressMonitor(MainApplication.getMainFrame(), tr("Re-downloading OSM task data")));
+            final var download = new DownloadOsmTask();
+            download.setZoomAfterDownload(false);
+            try {
+                final var parameters = new DownloadParams().withNewLayer(true).withLayerName(tr("MapRoulette re-download"));
+                final var future = download.download(parameters, bounds, monitor);
+                operation.onCancel(() -> {
+                    download.cancel();
+                    monitor.cancel();
+                    future.cancel(true);
+                });
+                future.get();
+                if (operation.isCanceled() || download.isCanceled()) {
+                    return DownloadOutcome.canceledDownload();
+                }
+                if (download.isFailed()) {
+                    throw downloadFailure(download);
+                }
+                final var downloaded = download.getDownloadedData();
+                if (downloaded == null) {
+                    throw new IOException("JOSM completed the re-download without OSM data");
+                }
+                return GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                    if (operation.isCanceled()) {
+                        return DownloadOutcome.canceledDownload();
+                    }
+                    TaskDownloadLayerSelector.prepareExact(layerManager, target);
+                    target.mergeFrom(downloaded);
+                    layerManager.setActiveLayer(target);
+                    return DownloadOutcome.completed(target);
+                });
+            } finally {
+                GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                    final var downloaded = download.getDownloadedData();
+                    if (downloaded != null) {
+                        layerManager.getLayersOfType(OsmDataLayer.class).stream()
+                                .filter(layer -> layer != target && layer.getDataSet() == downloaded).findFirst()
+                                .ifPresent(layerManager::removeLayer);
+                    }
+                    return null;
+                });
                 GuiHelper.runInEDT(monitor::close);
             }
         }
