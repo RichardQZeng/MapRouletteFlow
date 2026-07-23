@@ -1,9 +1,11 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.plugins.maproulette.api.parsers;
 
+import static org.openstreetmap.josm.plugins.maproulette.api.parsers.ParsingUtils.optionalArray;
 import static org.openstreetmap.josm.plugins.maproulette.api.parsers.ParsingUtils.optionalInstant;
 import static org.openstreetmap.josm.plugins.maproulette.api.parsers.ParsingUtils.optionalInteger;
 import static org.openstreetmap.josm.plugins.maproulette.api.parsers.ParsingUtils.optionalLong;
+import static org.openstreetmap.josm.plugins.maproulette.api.parsers.ParsingUtils.optionalObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -109,17 +111,15 @@ public final class TaskParser {
             return new Task(obj.getJsonNumber("id").longValue(), obj.getString("name"),
                     Instant.parse(obj.getString("created")), Instant.parse(obj.getString("modified")),
                     obj.getJsonNumber("parent").longValue(), obj.getString("instruction"),
-                    parseLocation(obj.getJsonObject("location")),
+                    optionalObject(obj, "location", TaskParser::parseLocation),
                     GeometryParser.parse(obj.getJsonObject("geometries").toString()),
-                    obj.containsKey("cooperativeWork") ? parseCooperativeWork(obj.getJsonObject("cooperativeWork"))
-                            : null,
+                    optionalObject(obj, "cooperativeWork", TaskParser::parseCooperativeWork),
                     TaskStatus.values()[obj.getInt("status")], optionalInstant(obj, "mappedOn"),
                     optionalLong(obj, "completedTimeSpent"), optionalLong(obj, "completedBy"),
                     parseTaskReviewFields(obj.getJsonObject("review")), obj.getInt("priority"),
                     optionalLong(obj, "changesetId"), obj.getString("completionResponses", null),
                     optionalLong(obj, "bundleId"), obj.getBoolean("isBundlePrimary", false),
-                    obj.containsKey("mapillaryImages") ? parseMapillaryImages(obj.getJsonArray("mapillaryImages"))
-                            : null,
+                    optionalArray(obj, "mapillaryImages", TaskParser::parseMapillaryImages),
                     obj.getString("errorTags"));
         } catch (IllegalDataException e) {
             throw new JosmRuntimeException(e);
@@ -217,10 +217,9 @@ public final class TaskParser {
                 optionalLong(obj, "metaReviewedBy"), optionalInteger(obj, "metaReviewedStatus"),
                 optionalInstant(obj, "metaReviewedAt"), optionalInstant(obj, "reviewStartedAt"),
                 optionalLong(obj, "reviewClaimedBy"), optionalInstant(obj, "reviewClaimedAt"),
-                obj.containsKey("additionalReviewers")
-                        ? obj.getJsonArray("additionalReviewers").getValuesAs(JsonNumber.class).stream()
-                                .mapToLong(JsonNumber::longValue).toArray()
-                        : EMPTY_LONG);
+                java.util.Objects.requireNonNullElseGet(optionalArray(obj, "additionalReviewers", array -> array
+                        .getValuesAs(JsonNumber.class).stream().mapToLong(JsonNumber::longValue).toArray()),
+                        () -> EMPTY_LONG));
     }
 
     /**

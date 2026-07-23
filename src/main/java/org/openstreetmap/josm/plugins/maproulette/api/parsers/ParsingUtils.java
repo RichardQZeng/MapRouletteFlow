@@ -7,8 +7,9 @@ import java.util.function.Function;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import jakarta.json.JsonArray;
+import jakarta.json.JsonNumber;
 import jakarta.json.JsonObject;
-import jakarta.json.JsonValue;
+import jakarta.json.JsonString;
 
 /**
  * Utils to avoid some common patterns (e.g., object.containsKey("foo") ? object.getJsonNumber("foo").longValue() : 0)
@@ -33,8 +34,8 @@ public final class ParsingUtils {
     @Nullable
     public static <T> T optionalObject(@Nonnull JsonObject object, @Nonnull String key,
             @Nonnull Function<JsonObject, T> parser) {
-        if (hasValue(object, key)) {
-            return parser.apply(object.getJsonObject(key));
+        if (object.get(key) instanceof JsonObject value) {
+            return parser.apply(value);
         }
         return null;
     }
@@ -51,8 +52,8 @@ public final class ParsingUtils {
     @Nullable
     public static <T> T optionalArray(@Nonnull JsonObject object, @Nonnull String key,
             @Nonnull Function<JsonArray, T> parser) {
-        if (hasValue(object, key)) {
-            return parser.apply(object.getJsonArray(key));
+        if (object.get(key) instanceof JsonArray value) {
+            return parser.apply(value);
         }
         return null;
     }
@@ -66,8 +67,8 @@ public final class ParsingUtils {
      */
     @Nullable
     public static Instant optionalInstant(JsonObject object, String key) {
-        if (hasValue(object, key)) {
-            return Instant.parse(object.getString(key));
+        if (object.get(key) instanceof JsonString value) {
+            return Instant.parse(value.getString());
         }
         return null;
     }
@@ -81,8 +82,8 @@ public final class ParsingUtils {
      */
     @Nullable
     public static Long optionalLong(JsonObject object, String key) {
-        if (hasValue(object, key)) {
-            return object.getJsonNumber(key).longValue();
+        if (object.get(key) instanceof JsonNumber value) {
+            return value.longValue();
         }
         return null;
     }
@@ -96,13 +97,9 @@ public final class ParsingUtils {
      */
     @Nullable
     public static Integer optionalInteger(JsonObject object, String key) {
-        if (hasValue(object, key)) {
-            return object.getInt(key);
+        if (object.get(key) instanceof JsonNumber value) {
+            return value.intValue();
         }
         return null;
-    }
-
-    private static boolean hasValue(JsonObject object, String key) {
-        return object.containsKey(key) && object.get(key) != JsonValue.NULL;
     }
 }
