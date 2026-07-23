@@ -48,6 +48,7 @@ class TaskListPanelTest {
             final var buttonTexts = descendants(panel).filter(AbstractButton.class::isInstance)
                     .map(AbstractButton.class::cast).map(AbstractButton::getText).toList();
             assertTrue(buttonTexts.contains("Load Challenge"));
+            assertTrue(buttonTexts.contains("Clear"));
             assertTrue(buttonTexts.contains("Random"));
             assertTrue(buttonTexts.contains("Nearby"));
             assertTrue(buttonTexts.contains("Start & Download"));

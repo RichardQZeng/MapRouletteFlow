@@ -51,4 +51,18 @@ public final class CurrentUserAPI {
             client.disconnect();
         }
     }
+
+    /** Validate and activate the credential currently configured for this server. */
+    public static AuthenticatedUser authenticateConfigured(String baseUrl) throws IOException {
+        final var normalized = AuthenticationManager.normalizeBaseUrl(baseUrl);
+        final var mode = AuthenticationManager.getMode(normalized);
+        final var apiKey = AuthenticationManager.getApiKey(normalized);
+        final var account = validate(normalized, apiKey);
+        if (mode != AuthenticationManager.getMode(normalized)
+                || !apiKey.equals(AuthenticationManager.getApiKey(normalized))) {
+            throw new IOException("MapRoulette authentication settings changed during validation");
+        }
+        AuthenticationManager.setAuthenticated(normalized, mode, apiKey, account);
+        return account;
+    }
 }

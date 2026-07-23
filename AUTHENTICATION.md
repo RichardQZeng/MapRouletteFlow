@@ -29,32 +29,35 @@ the plugin needs, including an echoed API key, so the implementation must parse
 only the account ID, linked OSM identity, display name, and score and then
 discard the body.
 
-## Existing Baseline Behavior
+## Automatic Mode
 
-The inherited plugin does not currently provide a direct raw-key field. It:
+Automatic mode:
 
 1. Requires an active OSM account in JOSM.
 2. Fetches that account's OSM user preferences.
 3. Reads `maproulette_apikey_v2` by default.
 4. Caches the resulting MapRoulette key for that OSM user and server.
 
-The existing `MapRoulette OpenStreetMap Preference Key` setting expects the
-*name of an OSM preference*, not the API-key value. Pasting a raw MapRoulette
-key into that field will not authenticate. Its custom preference-name handling
-also has a read/write key mismatch that is scheduled for correction.
+The `OSM preference name` setting expects the *name of an OSM preference*, not
+the API-key value. Pasting a raw MapRoulette key into that field will not
+authenticate.
 
-## Planned Setup UI
+## Setup UI
 
-`Preferences -> MapRoulette -> Server Settings` will provide:
+`Preferences -> MapRoulette -> Server Settings` provides:
 
 - MapRoulette API URL, defaulting to `https://maproulette.org/api/v2`.
 - Authentication mode: `Automatic from OSM preferences` or `Direct API key`.
 - A masked direct API-key input.
-- Optional session-only storage.
+- Session-only direct-key storage by default and an explicit `Remember key`
+  option.
 - `Test Connection`.
 - Authenticated MapRoulette account, linked OSM name, and current score.
 
-The plugin will not allow task-changing operations until the connection test
+At startup, the plugin validates any available automatic or remembered key.
+`Test Connection` remains available for manual validation and recovery. A
+temporary connection failure does not delete a credential; HTTP 401 clears the
+rejected credential. Task-changing operations remain disabled until validation
 succeeds.
 
 ## Points and Attribution

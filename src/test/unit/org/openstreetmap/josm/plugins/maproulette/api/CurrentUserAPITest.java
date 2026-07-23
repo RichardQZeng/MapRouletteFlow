@@ -5,11 +5,13 @@ import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
 import static com.github.tomakehurst.wiremock.client.WireMock.unauthorized;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
@@ -102,6 +104,32 @@ class CurrentUserAPITest {
         assertThrows(UnauthorizedException.class, () -> CurrentUserAPI.validate(baseUrl, oldKey));
         AuthenticationManager.setDirectApiKey(baseUrl, rotatedKey, false);
         assertEquals(42, CurrentUserAPI.validate(baseUrl, rotatedKey).id());
+    }
+
+    @Test
+    void authenticatesWithTheConfiguredCredential() throws IOException {
+        final var baseUrl = baseUrl();
+        AuthenticationManager.setDirectApiKey(baseUrl, CANDIDATE_KEY, true);
+        AuthenticationManager.setMode(baseUrl, AuthenticationMode.DIRECT);
+        wireMock().register(get("/api/v2/user/whoami").willReturn(okJson(validResponse())));
+
+        final var account = CurrentUserAPI.authenticateConfigured(baseUrl);
+
+        assertEquals(42, account.id());
+        assertNotNull(AuthenticationManager.getAuthenticatedUser(baseUrl));
+    }
+
+    @Test
+    void temporaryStartupFailureKeepsTheConfiguredCredential() {
+        final var baseUrl = baseUrl();
+        AuthenticationManager.setDirectApiKey(baseUrl, CANDIDATE_KEY, true);
+        AuthenticationManager.setMode(baseUrl, AuthenticationMode.DIRECT);
+        wireMock().register(get("/api/v2/user/whoami").willReturn(serverError()));
+
+        assertThrows(IOException.class, () -> CurrentUserAPI.authenticateConfigured(baseUrl));
+
+        assertEquals(CANDIDATE_KEY, AuthenticationManager.getDirectApiKey(baseUrl));
+        assertNull(AuthenticationManager.getAuthenticatedUser(baseUrl));
     }
 
     private static String validResponse() {

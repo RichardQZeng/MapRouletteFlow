@@ -13,6 +13,7 @@ import org.openstreetmap.josm.gui.preferences.PreferenceSetting;
 import org.openstreetmap.josm.plugins.Plugin;
 import org.openstreetmap.josm.plugins.PluginInformation;
 import org.openstreetmap.josm.plugins.maproulette.actions.downloadtasks.MapRouletteDownloadTask;
+import org.openstreetmap.josm.plugins.maproulette.api.CurrentUserAPI;
 import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference;
@@ -28,6 +29,7 @@ import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowDraftStore;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.tools.Destroyable;
+import org.openstreetmap.josm.tools.Logging;
 
 /**
  * The POJO entry point
@@ -66,13 +68,39 @@ public class MapRoulette extends Plugin implements Destroyable {
         }
         if (newFrame != null) {
             workflow.setNextMode(MapRouletteTaskPreference.getNextMode());
-            final var account = AuthenticationManager.getAuthenticatedUser(MapRouletteConfig.getBaseUrl());
-            if (account != null) {
-                workflow.authenticatedAs(MapRouletteConfig.getBaseUrl(), account);
-            }
             newFrame.addToggleDialog(new TaskListPanel());
-            restoreDraft(account);
+            authenticateAtStartup(newFrame);
         }
+    }
+
+    private void authenticateAtStartup(MapFrame mapFrame) {
+        final var baseUrl = AuthenticationManager.normalizeBaseUrl(MapRouletteConfig.getBaseUrl());
+        final var existingAccount = AuthenticationManager.getAuthenticatedUser(baseUrl);
+        if (existingAccount != null) {
+            workflow.authenticatedAs(baseUrl, existingAccount);
+            restoreDraft(existingAccount);
+            return;
+        }
+        final var mode = AuthenticationManager.getMode(baseUrl);
+        MainApplication.worker.execute(() -> {
+            try {
+                CurrentUserAPI.authenticateConfigured(baseUrl);
+                GuiHelper.runInEDT(() -> {
+                    if (MainApplication.getMap() != mapFrame || MapRouletteConfig.getInstance() == null
+                            || !baseUrl.equals(AuthenticationManager.normalizeBaseUrl(MapRouletteConfig.getBaseUrl()))
+                            || mode != AuthenticationManager.getMode(baseUrl)) {
+                        return;
+                    }
+                    final var account = AuthenticationManager.getAuthenticatedUser(baseUrl);
+                    if (account != null) {
+                        workflow.authenticatedAs(baseUrl, account);
+                        restoreDraft(account);
+                    }
+                });
+            } catch (IOException | RuntimeException exception) {
+                Logging.info("MapRoulette startup authentication was unavailable: " + exception.getMessage());
+            }
+        });
     }
 
     public static void restoreDraft(org.openstreetmap.josm.plugins.maproulette.api.model.AuthenticatedUser account) {

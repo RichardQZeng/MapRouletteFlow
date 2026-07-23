@@ -71,6 +71,11 @@ account data and echoes the API key.
 Direct keys remain in memory by default. `Remember key` is explicit and warns
 that ordinary JOSM preference storage is not a secure credential vault.
 
+At startup, the plugin validates an available automatic or remembered
+credential with `/user/whoami`. A temporary connection failure leaves the
+credential intact; HTTP 401 clears the rejected credential. Session-only direct
+keys still require manual entry after restarting JOSM.
+
 Task-changing controls remain disabled until authentication succeeds.
 
 ## Settings
@@ -109,7 +114,7 @@ The challenge input belongs in the main MapRoulette panel, not Preferences:
 
 ```text
 Challenge ID or URL:
-[____________________________________________] [Load Challenge]
+[____________________________________] [Load Challenge] [Clear]
 
 Challenge: <name>
 Next task: (o) Random  ( ) Nearby
@@ -120,7 +125,10 @@ Next task: (o) Random  ( ) Nearby
 ```
 
 The input accepts a numeric challenge ID or a supported MapRoulette challenge
-URL.
+URL. After a challenge loads successfully, its canonical numeric ID is
+remembered for that MapRoulette server and prefilled on the next startup. It is
+not loaded automatically because loading reserves a task. `Clear` forgets the
+saved input without releasing or unloading current work.
 
 There is no ten-task preview, `Load 10 More`, or multi-task fitting workflow.
 

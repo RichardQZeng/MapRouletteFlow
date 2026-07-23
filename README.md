@@ -5,10 +5,9 @@ challenge workflow into JOSM. The repository starts from the existing
 [JOSM MapRoulette plugin](https://github.com/JOSM/MapRoulette) and retains its
 GPL license and original authorship.
 
-The initial code is a clean baseline fork. The web-style workflow described
-below is planned work, not yet implemented.
+The plugin implements the focused web-style workflow described below.
 
-## Target Workflow
+## Workflow
 
 ```text
 Load challenge by ID or URL
@@ -26,18 +25,15 @@ See [PLAN.md](PLAN.md) for the agreed product behavior and scope.
 See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for engineering milestones,
 acceptance criteria, and verification.
 
-See [AUTHENTICATION.md](AUTHENTICATION.md) for the confirmed API-key format,
-current baseline behavior, planned setup UI, and task-point attribution.
+See [AUTHENTICATION.md](AUTHENTICATION.md) for the API-key format, automatic and
+direct setup behavior, startup validation, and task-point attribution.
 
-## Current Baseline
+## Current Behavior
 
-The inherited plugin can download MapRoulette tasks, show them in a custom
-layer, lock tasks, display instructions, apply supported cooperative changes,
-and submit completion data through its existing upload/stop-task flow.
-
-The baseline does not yet automatically download editable OSM data when a task
-starts, provide the five-button web completion flow, or safely wait for an
-actual successful OSM upload before submitting a Fixed result.
+The plugin validates available remembered credentials at startup, remembers the
+last successfully loaded challenge ID without automatically reserving it, and
+provides a single-task reservation, editing, upload, and five-result completion
+flow. The challenge input includes a Clear action for forgetting the saved ID.
 
 ## Build
 

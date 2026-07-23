@@ -67,6 +67,7 @@ public final class TaskListPanel extends ToggleDialog {
     private final TaskDownloadService taskDownloads = new TaskDownloadService(workflow);
     private final JosmTextField challengeInput = new JosmTextField();
     private final JButton loadChallenge = new JButton(tr("Load Challenge"));
+    private final JButton clearChallenge = new JButton(tr("Clear"));
     private final JLabel challengeName = new JLabel(tr("Challenge: None"));
     private final JLabel challengeDetails = new JLabel(" ");
     private final JRadioButton randomMode = new JRadioButton(tr("Random"));
@@ -101,13 +102,20 @@ public final class TaskListPanel extends ToggleDialog {
         nearbyMode.addActionListener(event -> setNextMode(NextMode.NEARBY));
         loadChallenge.addActionListener(event -> requestChallenge(challengeInput.getText()));
         challengeInput.addActionListener(event -> requestChallenge(challengeInput.getText()));
+        clearChallenge.setToolTipText(tr("Forget the remembered challenge input"));
+        clearChallenge.addActionListener(event -> clearRememberedChallenge());
+        if (MapRouletteConfig.getInstance() != null) {
+            RecentChallengePreference.get(MapRouletteConfig.getBaseUrl())
+                    .ifPresent(id -> challengeInput.setText(Long.toString(id)));
+        }
 
         final var modePanel = new JPanel();
         modePanel.add(randomMode);
         modePanel.add(nearbyMode);
         final var inputPanel = new JPanel(new GridBagLayout());
         inputPanel.add(challengeInput, GBC.std().fill(GBC.HORIZONTAL));
-        inputPanel.add(loadChallenge, GBC.eol());
+        inputPanel.add(loadChallenge, GBC.std());
+        inputPanel.add(clearChallenge, GBC.eol());
 
         final var panel = new JPanel(new GridBagLayout());
         panel.add(new JLabel(tr("Challenge ID or URL:")), GBC.eol().anchor(GBC.LINE_START));
@@ -209,6 +217,8 @@ public final class TaskListPanel extends ToggleDialog {
             return;
         }
         loading = false;
+        challengeInput.setText(Long.toString(challenge.id()));
+        RecentChallengePreference.remember(MapRouletteConfig.getBaseUrl(), challenge.id());
         updateChallenge(challenge);
         switch (result.status()) {
         case RESERVED -> {
@@ -416,6 +426,13 @@ public final class TaskListPanel extends ToggleDialog {
         }
     }
 
+    private void clearRememberedChallenge() {
+        challengeInput.setText("");
+        if (MapRouletteConfig.getInstance() != null) {
+            RecentChallengePreference.clear(MapRouletteConfig.getBaseUrl());
+        }
+    }
+
     private void workflowChanged(PropertyChangeEvent event) {
         if (WorkflowController.SNAPSHOT_PROPERTY.equals(event.getPropertyName())) {
             final var oldSnapshot = (Snapshot) event.getOldValue();
@@ -510,6 +527,7 @@ public final class TaskListPanel extends ToggleDialog {
         final var authenticated = !snapshot.suspended() && isWorkflowAuthenticated();
         loadChallenge.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE
                 && workflow.canSelectChallenge());
+        clearChallenge.setEnabled(!loading);
         randomMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);
         nearbyMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);
         startDownloadAction.setEnabled(authenticated && !loading && snapshot.state() == State.RESERVED_PREVIEW);
