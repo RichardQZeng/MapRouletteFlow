@@ -16,6 +16,7 @@ import org.openstreetmap.josm.plugins.maproulette.actions.downloadtasks.MapRoule
 import org.openstreetmap.josm.plugins.maproulette.api.TaskAPI;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.MapRouletteShortcuts;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.list.TaskListPanel;
 import org.openstreetmap.josm.plugins.maproulette.io.upload.EarlyUploadHook;
 import org.openstreetmap.josm.plugins.maproulette.io.upload.LateUploadHook;
@@ -45,6 +46,7 @@ public class MapRoulette extends Plugin implements Destroyable {
      */
     public MapRoulette(PluginInformation info) {
         super(info);
+        MapRouletteShortcuts.registerAll();
         this.getPreferenceSetting().ok();
         UploadAction.registerUploadHook(earlyUploadHook);
         UploadAction.registerUploadHook(lateUploadHook, true);

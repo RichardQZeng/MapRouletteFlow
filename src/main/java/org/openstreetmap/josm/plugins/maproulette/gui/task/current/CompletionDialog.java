@@ -10,6 +10,8 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.Map;
@@ -21,6 +23,7 @@ import java.util.function.BooleanSupplier;
 
 import javax.swing.ButtonGroup;
 import javax.swing.ButtonModel;
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
@@ -31,6 +34,8 @@ import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JToggleButton;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.AttributeSet;
@@ -162,10 +167,19 @@ final class CompletionDialog extends JDialog {
         submit.addActionListener(event -> submit());
 
         final var content = new JPanel(new BorderLayout(8, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         content.add(fields, BorderLayout.CENTER);
         content.add(buttons, BorderLayout.SOUTH);
         setContentPane(content);
         getRootPane().setDefaultButton(submit);
+        getRootPane().registerKeyboardAction(event -> close(false), KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane().registerKeyboardAction(event -> {
+            if (!busy) {
+                submit();
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
         packWithinLimit();
         setLocationRelativeTo(owner);
     }

@@ -8,7 +8,6 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.io.Serial;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +43,7 @@ import org.openstreetmap.josm.plugins.maproulette.data.ApplyCooperativeChange;
 import org.openstreetmap.josm.plugins.maproulette.data.MergeDataSetsCommand;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
 import org.openstreetmap.josm.plugins.maproulette.gui.TagChangeTable;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.MapRouletteShortcuts;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Shortcut;
 import org.openstreetmap.josm.tools.Utils;
@@ -459,8 +459,7 @@ private static class SelectOsmPrimitives extends InnerAction {
 
     SelectOsmPrimitives(Supplier<Task> taskSupplier) {
         super(tr("Select Primitives"), "dialogs/select", tr("Select the OSM primitives for this task"),
-                Shortcut.registerShortcut("maproulette:select_task_primitives",
-                        tr("MapRoulette: Select task primitives"), KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
+                MapRouletteShortcuts.selectPrimitives(),
                 false);
         Objects.requireNonNull(taskSupplier);
         this.taskSuppler = taskSupplier;

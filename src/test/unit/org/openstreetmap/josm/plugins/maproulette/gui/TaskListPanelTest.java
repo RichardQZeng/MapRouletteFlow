@@ -60,6 +60,7 @@ class TaskListPanelTest {
             assertTrue(buttonTexts.contains("Can't Complete"));
             assertTrue(buttonTexts.contains("Skip"));
             assertTrue(buttonTexts.contains("Select Primitives"));
+            assertTrue(buttonTexts.indexOf("Instructions...") > buttonTexts.indexOf("Select Primitives"));
             assertFalse(buttonTexts.stream().anyMatch(text -> text != null && text.contains("10")));
             assertTrue(descendants(panel).noneMatch(JTable.class::isInstance));
         } finally {

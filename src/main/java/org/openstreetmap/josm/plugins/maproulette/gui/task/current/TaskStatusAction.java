@@ -1,12 +1,8 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.plugins.maproulette.gui.task.current;
 
-import static org.openstreetmap.josm.tools.I18n.tr;
-
 import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.io.Serial;
-import java.util.Locale;
 import java.util.function.Supplier;
 import java.util.function.Predicate;
 
@@ -17,12 +13,12 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig;
 import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
 import org.openstreetmap.josm.plugins.maproulette.io.upload.FixedUploadCoordinator;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.MapRouletteShortcuts;
 import org.openstreetmap.josm.plugins.maproulette.workflow.ApiTaskCompletionGateway;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionSubmissionController;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController;
 import org.openstreetmap.josm.plugins.maproulette.workflow.WorkflowController.State;
-import org.openstreetmap.josm.tools.Shortcut;
 
 /** Opens the focused completion dialog for one web-style task result. */
 class TaskStatusAction extends CurrentTaskPanel.InnerAction {
@@ -39,8 +35,7 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
     TaskStatusAction(CompletionResult result, Supplier<Task> currentTaskProvider,
             Supplier<HTMLDocument> currentDocumentProvider, Predicate<Task> cooperativePreparation) {
         super(result.label(), icon(result), result.label(),
-                Shortcut.registerShortcut("maproulette:" + result.name().toLowerCase(Locale.ENGLISH),
-                        tr("MapRoulette: {0}", result.label()), KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
+                MapRouletteShortcuts.completion(result),
                 false);
         this.result = result;
         this.currentTaskProvider = currentTaskProvider;

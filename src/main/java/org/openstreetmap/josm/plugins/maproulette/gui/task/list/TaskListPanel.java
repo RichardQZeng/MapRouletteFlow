@@ -42,6 +42,7 @@ import org.openstreetmap.josm.plugins.maproulette.gui.layer.MapRouletteClustered
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference;
 import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRouletteTaskPreference.NextMode;
+import org.openstreetmap.josm.plugins.maproulette.gui.task.MapRouletteShortcuts;
 import org.openstreetmap.josm.plugins.maproulette.gui.task.current.CurrentTaskPanel;
 import org.openstreetmap.josm.plugins.maproulette.util.ExceptionDialogUtil;
 import org.openstreetmap.josm.plugins.maproulette.util.AuthenticationManager;
@@ -124,10 +125,10 @@ public final class TaskListPanel extends ToggleDialog {
         taskActions.add(new JButton(retryDownloadAction));
         taskActions.add(new JButton(releaseAction));
         panel.add(taskActions, GBC.eol().anchor(GBC.LINE_START));
-        currentTaskActions.add(new JButton(showInstructionsAction));
         for (var action : currentTaskPanel.actions()) {
             currentTaskActions.add(new JButton(action));
         }
+        currentTaskActions.add(new JButton(showInstructionsAction));
         panel.add(currentTaskLabel, GBC.eol().anchor(GBC.LINE_START).insets(0, 8, 0, 0));
         panel.add(currentTaskActions, GBC.eol().fill(GBC.HORIZONTAL));
 
@@ -612,8 +613,7 @@ public final class TaskListPanel extends ToggleDialog {
 
         ShowInstructionsAction() {
             super(tr("Instructions..."), null, tr("Show task instructions"),
-                    Shortcut.registerShortcut("maproulette:task", tr("MapRoulette: Current task"),
-                            KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
+                    MapRouletteShortcuts.instructions(),
                     false, true);
         }
 
