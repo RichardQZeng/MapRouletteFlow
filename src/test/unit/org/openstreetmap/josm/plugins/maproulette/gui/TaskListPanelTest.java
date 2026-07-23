@@ -53,8 +53,36 @@ class TaskListPanelTest {
             assertTrue(buttonTexts.contains("Start & Download"));
             assertTrue(buttonTexts.contains("Retry"));
             assertTrue(buttonTexts.contains("Release"));
+            assertTrue(buttonTexts.contains("Instructions..."));
+            assertTrue(buttonTexts.contains("I fixed it!"));
+            assertTrue(buttonTexts.contains("Already fixed"));
+            assertTrue(buttonTexts.contains("Not an Issue"));
+            assertTrue(buttonTexts.contains("Can't Complete"));
+            assertTrue(buttonTexts.contains("Skip"));
+            assertTrue(buttonTexts.contains("Select Primitives"));
             assertFalse(buttonTexts.stream().anyMatch(text -> text != null && text.contains("10")));
             assertTrue(descendants(panel).noneMatch(JTable.class::isInstance));
+        } finally {
+            panel.destroy();
+        }
+    }
+
+    @Test
+    void currentTaskActionsAppearInMainPanelAfterActivation() {
+        workflow.connect();
+        workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null));
+        final var task = task(100);
+        workflow.reserveCandidate(task);
+        workflow.beginDownload(null);
+        workflow.activateTask(task, new OsmDataLayer(new DataSet(), "test", null));
+
+        final var panel = new TaskListPanel();
+        try {
+            final var instructions = descendants(panel).filter(AbstractButton.class::isInstance)
+                    .map(AbstractButton.class::cast).filter(button -> "Instructions...".equals(button.getText()))
+                    .findFirst().orElseThrow();
+            assertTrue(isVisibleWithin(instructions, panel));
         } finally {
             panel.destroy();
         }
@@ -65,8 +93,8 @@ class TaskListPanelTest {
         workflow.connect();
         workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null));
-        final var task = new Task(100, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+        final var task = new Task(100, "task", null, null, 10, "instructions", null, new DataSet(), null,
+                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
         workflow.reserveCandidate(task);
         final var panel = new TaskListPanel();
         try {
@@ -90,6 +118,10 @@ class TaskListPanelTest {
             assertEquals(oldTask.id(), workflow.snapshot().completedTaskId());
             assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
                     .map(JLabel::getText).anyMatch(text -> text != null && text.contains("No OSM data")));
+            final var instructions = descendants(panel).filter(AbstractButton.class::isInstance)
+                    .map(AbstractButton.class::cast).filter(button -> "Instructions...".equals(button.getText()))
+                    .findFirst().orElseThrow();
+            assertFalse(isVisibleWithin(instructions, panel));
         } finally {
             panel.destroy();
         }
@@ -127,8 +159,8 @@ class TaskListPanelTest {
     }
 
     private static Task task(long id) {
-        return new Task(id, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED, null, null,
-                null, null, 0, null, null, null, false, null, "");
+        return new Task(id, "task", null, null, 10, "instructions", null, new DataSet(), null, TaskStatus.CREATED,
+                null, null, null, null, 0, null, null, null, false, null, "");
     }
 
     private static Stream<Component> descendants(Container container) {
@@ -136,5 +168,14 @@ class TaskListPanelTest {
                 .flatMap(component -> component instanceof Container child
                         ? Stream.concat(Stream.of(component), descendants(child))
                         : Stream.of(component));
+    }
+
+    private static boolean isVisibleWithin(Component component, Container root) {
+        for (var current = component; current != root; current = current.getParent()) {
+            if (current == null || !current.isVisible()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

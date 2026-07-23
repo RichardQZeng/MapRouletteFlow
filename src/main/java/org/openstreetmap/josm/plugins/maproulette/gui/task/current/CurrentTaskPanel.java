@@ -6,20 +6,20 @@ import static org.openstreetmap.josm.tools.I18n.tr;
 
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.beans.PropertyChangeListener;
 import java.io.Serial;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.HashMap;
 
 import javax.swing.DefaultComboBoxModel;
+import javax.swing.Action;
 import javax.swing.ButtonModel;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -36,8 +36,6 @@ import org.openstreetmap.josm.actions.JosmAction;
 import org.openstreetmap.josm.data.UndoRedoHandler;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
-import org.openstreetmap.josm.gui.SideButton;
-import org.openstreetmap.josm.gui.dialogs.ToggleDialog;
 import org.openstreetmap.josm.gui.widgets.HtmlPanel;
 import org.openstreetmap.josm.gui.widgets.VerticallyScrollablePanel;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
@@ -46,8 +44,6 @@ import org.openstreetmap.josm.plugins.maproulette.data.ApplyCooperativeChange;
 import org.openstreetmap.josm.plugins.maproulette.data.MergeDataSetsCommand;
 import org.openstreetmap.josm.plugins.maproulette.gui.MRGuiHelper;
 import org.openstreetmap.josm.plugins.maproulette.gui.TagChangeTable;
-import org.openstreetmap.josm.plugins.maproulette.gui.preferences.MapRoulettePreferences;
-import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.Shortcut;
 import org.openstreetmap.josm.tools.Utils;
@@ -57,7 +53,7 @@ import org.openstreetmap.josm.plugins.maproulette.workflow.CompletionResult;
 /**
  * A panel for currently locked tasks
  */
-public final class CurrentTaskPanel extends ToggleDialog {
+public final class CurrentTaskPanel extends JPanel {
     /**
      * The serial UID for this panel
      */
@@ -91,23 +87,11 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * The current task
      */
     private Task task;
-    private final PropertyChangeListener workflowListener = event -> {
-        final var snapshot = WorkflowController.getInstance().snapshot();
-        if (task != null && snapshot.activeTask() == null
-                && (snapshot.state() == WorkflowController.State.CHALLENGE_IDLE
-                        || snapshot.state() == WorkflowController.State.RESERVED_PREVIEW)) {
-            task = null;
-        }
-        refreshPanel();
-    };
     /**
      * Create a new task panel
      */
     public CurrentTaskPanel() {
-        super(tr("Current MapRoulette Task"), "user_no_image", tr("This is the current MapRoulette Task"),
-                Shortcut.registerShortcut("maproulette:task", tr("MapRoulette: Current task"), KeyEvent.CHAR_UNDEFINED,
-                        Shortcut.NONE),
-                200, false, MapRoulettePreferences.class, false);
+        super(new BorderLayout());
 
         final Supplier<Task> supplier = () -> this.task;
         final Supplier<HTMLDocument> docSupplier = () -> (HTMLDocument) this.instructionPane.getEditorPane()
@@ -123,12 +107,7 @@ public final class CurrentTaskPanel extends ToggleDialog {
                 new TaskStatusAction(CompletionResult.SKIP, supplier, docSupplier, this::prepareCooperativeFixed),
                 new SelectOsmPrimitives(supplier) };
 
-        final var sideButtons = new ArrayList<SideButton>();
-        for (var action : newActions) {
-            sideButtons.add(new SideButton(action));
-        }
         this.actions = newActions;
-        WorkflowController.getInstance().addPropertyChangeListener(workflowListener);
         this.instructionPane.enableClickableHyperlinks();
         final var gbc = GBC.eol();
         this.panel.add(this.idLabel, gbc);
@@ -136,12 +115,8 @@ public final class CurrentTaskPanel extends ToggleDialog {
         gbc.fill(GridBagConstraints.BOTH);
         this.panel.add(this.instructionPane, gbc);
         this.panel.add(this.cooperativeWork, gbc);
-        super.createLayout(this.panel.getVerticalScrollPane(), false, sideButtons);
-    }
-
-    @Override
-    public String helpTopic() {
-        return ht("/Dialog/CurrentMapRouletteTask");
+        add(this.panel.getVerticalScrollPane(), BorderLayout.CENTER);
+        refreshPanel();
     }
 
     /**
@@ -150,35 +125,40 @@ public final class CurrentTaskPanel extends ToggleDialog {
      * @param task The task to show
      */
     public void refreshModel(final Task task) {
+        final var sameTask = this.task == task || this.task != null && task != null && this.task.id() == task.id();
         this.task = task;
-        if ((task == null && this.isVisible()
-                && Config.getPref().getBoolean("maproulette.current_task_panel.autohide", false))
-                || (task != null && !this.isVisible())) {
-            this.toggleAction.actionPerformed(null);
+        if (sameTask) {
+            cooperativeTagTable.setEnabled(WorkflowController.getInstance().snapshot().completionDraft() == null);
+            updateActionStates();
+        } else {
+            refreshPanel();
         }
-        this.refreshPanel();
+        revalidate();
+        repaint();
     }
 
     /**
      * Get the actions for the panel
      * @return The actions
      */
-    InnerAction[] actions() {
-        return actions;
+    public Action[] actions() {
+        return actions.clone();
     }
 
-    @Override
+    HTMLDocument instructionDocument() {
+        return (HTMLDocument) instructionPane.getEditorPane().getDocument();
+    }
+
     public void destroy() {
-        WorkflowController.getInstance().removePropertyChangeListener(workflowListener);
-        super.destroy();
+        for (var action : actions) {
+            action.destroy();
+        }
     }
 
     private void refreshPanel() {
         final var currentTask = this.task;
         this.panel.setBackground(UIManager.getColor("Panel.background"));
-        for (var action : actions) {
-            action.updateEnabledState();
-        }
+        updateActionStates();
         if (currentTask == null) {
             cooperativeSelections.clear();
             cooperativeTaskId = null;
@@ -249,6 +229,14 @@ public final class CurrentTaskPanel extends ToggleDialog {
             } else {
                 this.cooperativeWork.setVisible(false);
             }
+        } else {
+            this.cooperativeWork.setVisible(false);
+        }
+    }
+
+    private void updateActionStates() {
+        for (var action : actions) {
+            action.updateEnabledState();
         }
     }
 
@@ -484,7 +472,7 @@ private static class SelectOsmPrimitives extends InnerAction {
         final var task = this.taskSuppler.get();
         final var layer = WorkflowController.getInstance().snapshot().editLayer();
         if (task != null && layer != null) {
-            final var primitives = TaskPrimitives.getPrimitiveIds(task);
+            final var primitives = primitiveIds(task);
             if (!primitives.isEmpty()) {
                 layer.getDataSet().setSelected(primitives);
                 AutoScaleAction.autoScale(AutoScaleAction.AutoScaleMode.SELECTION);
@@ -496,9 +484,16 @@ private static class SelectOsmPrimitives extends InnerAction {
     public void updateEnabledState() {
         if (this.taskSuppler != null) { // This check is only needed for the constructor. Watch JEP draft 8300786.
             final var task = this.taskSuppler.get();
-            this.setEnabled(WorkflowController.getInstance().snapshot().editLayer() != null
-                    && !Optional.ofNullable(task).map(TaskPrimitives::getPrimitiveIds)
-                    .orElse(Collections.emptyList()).isEmpty());
+            this.setEnabled(WorkflowController.getInstance().snapshot().editLayer() != null && task != null
+                    && !primitiveIds(task).isEmpty());
         }
+    }
+
+    private static java.util.Collection<org.openstreetmap.josm.data.osm.PrimitiveId> primitiveIds(Task task) {
+        final var challenge = WorkflowController.getInstance().snapshot().activeChallenge();
+        final var property = challenge != null && challenge.id() == task.parentId() && challenge.extra() != null
+                ? challenge.extra().osmIdProperty()
+                : null;
+        return TaskPrimitives.getPrimitiveIds(task, property);
     }
 }}

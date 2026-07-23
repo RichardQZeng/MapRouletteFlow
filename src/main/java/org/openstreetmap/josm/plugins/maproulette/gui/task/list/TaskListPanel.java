@@ -4,6 +4,7 @@ package org.openstreetmap.josm.plugins.maproulette.gui.task.list;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
@@ -17,12 +18,15 @@ import java.util.List;
 import javax.swing.AbstractAction;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 
+import org.openstreetmap.josm.actions.JosmAction;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.dialogs.ToggleDialog;
 import org.openstreetmap.josm.gui.util.GuiHelper;
@@ -73,7 +77,12 @@ public final class TaskListPanel extends ToggleDialog {
     private final StartDownloadAction startDownloadAction = new StartDownloadAction();
     private final RetryDownloadAction retryDownloadAction = new RetryDownloadAction();
     private final ReleaseAction releaseAction = new ReleaseAction();
+    private final CurrentTaskPanel currentTaskPanel = new CurrentTaskPanel();
+    private final ShowInstructionsAction showInstructionsAction = new ShowInstructionsAction();
+    private final JLabel currentTaskLabel = new JLabel(tr("Current task:"));
+    private final JPanel currentTaskActions = new JPanel(new GridLayout(0, 2, 4, 4));
     private final PropertyChangeListener workflowListener = this::workflowChanged;
+    private JDialog instructionsDialog;
     private volatile boolean destroyed;
     private boolean loading;
     private long requestGeneration;
@@ -115,6 +124,12 @@ public final class TaskListPanel extends ToggleDialog {
         taskActions.add(new JButton(retryDownloadAction));
         taskActions.add(new JButton(releaseAction));
         panel.add(taskActions, GBC.eol().anchor(GBC.LINE_START));
+        currentTaskActions.add(new JButton(showInstructionsAction));
+        for (var action : currentTaskPanel.actions()) {
+            currentTaskActions.add(new JButton(action));
+        }
+        panel.add(currentTaskLabel, GBC.eol().anchor(GBC.LINE_START).insets(0, 8, 0, 0));
+        panel.add(currentTaskActions, GBC.eol().fill(GBC.HORIZONTAL));
 
         workflow.addPropertyChangeListener(workflowListener);
         createLayout(panel, true, Collections.emptyList());
@@ -122,8 +137,6 @@ public final class TaskListPanel extends ToggleDialog {
         updateFromSnapshot(snapshot);
         if (!snapshot.suspended() && snapshot.reservedTask() != null) {
             presentReservedPreview(snapshot);
-        } else if (!snapshot.suspended() && snapshot.activeTask() != null) {
-            showCurrentTask(snapshot.activeTask());
         }
     }
 
@@ -337,7 +350,6 @@ public final class TaskListPanel extends ToggleDialog {
                 }
             });
         }
-        showCurrentTask(result.task());
         message.setText(tr("Task {0} is ready for editing. Selected {1} referenced OSM primitives.",
                 result.task().id(), primitives.size()));
         updateFromSnapshot(workflow.snapshot());
@@ -362,19 +374,6 @@ public final class TaskListPanel extends ToggleDialog {
         message.setText(tr("OSM download failed. Task {0} remains reserved; use Retry or Release.", task.id()));
         updateFromSnapshot(workflow.snapshot());
         ExceptionDialogUtil.explainException(exception);
-    }
-
-    private static void showCurrentTask(Task task) {
-        final var map = MainApplication.getMap();
-        if (map == null) {
-            return;
-        }
-        var panel = map.getToggleDialog(CurrentTaskPanel.class);
-        if (panel == null) {
-            panel = new CurrentTaskPanel();
-            map.addToggleDialog(panel);
-        }
-        panel.refreshModel(task);
     }
 
     private void showTaskOnMap(Task task) {
@@ -425,10 +424,6 @@ public final class TaskListPanel extends ToggleDialog {
             if (!newSnapshot.suspended() && newReserved != null
                     && (oldSnapshot.suspended() || oldReserved == null || oldReserved.id() != newReserved.id())) {
                 presentReservedPreview(newSnapshot);
-            } else if (!newSnapshot.suspended() && newSnapshot.activeTask() != null && (oldSnapshot.suspended()
-                    || oldSnapshot.activeTask() == null
-                    || oldSnapshot.activeTask().id() != newSnapshot.activeTask().id())) {
-                showCurrentTask(newSnapshot.activeTask());
             } else if (oldSnapshot.state() == State.SUBMITTING && newSnapshot.state() == State.CHALLENGE_IDLE) {
                 showAutomaticReservationOutcome(newSnapshot);
             }
@@ -469,13 +464,22 @@ public final class TaskListPanel extends ToggleDialog {
 
     private void updateFromSnapshot(Snapshot snapshot) {
         if (!SwingUtilities.isEventDispatchThread()) {
-            GuiHelper.runInEDT(() -> updateFromSnapshot(snapshot));
+            GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                updateFromSnapshot(snapshot);
+                return null;
+            });
             return;
         }
         randomMode.setSelected(snapshot.nextMode() == NextMode.RANDOM);
         nearbyMode.setSelected(snapshot.nextMode() == NextMode.NEARBY);
         updateChallenge(snapshot.activeChallenge());
         final var task = snapshot.reservedTask() != null ? snapshot.reservedTask() : snapshot.activeTask();
+        currentTaskPanel.refreshModel(snapshot.activeTask());
+        currentTaskLabel.setVisible(snapshot.activeTask() != null);
+        currentTaskActions.setVisible(snapshot.activeTask() != null);
+        if (snapshot.activeTask() == null && instructionsDialog != null) {
+            instructionsDialog.setVisible(false);
+        }
         if (task == null) {
             taskName.setText(tr("No task reserved"));
             reservation.setText(" ");
@@ -512,6 +516,7 @@ public final class TaskListPanel extends ToggleDialog {
                 && snapshot.reservedTask() != null);
         releaseAction.setEnabled(authenticated && !loading && (snapshot.state() == State.RESERVED_PREVIEW
                 || snapshot.state() == State.RECOVERABLE_ERROR && snapshot.reservedTask() != null));
+        showInstructionsAction.updateEnabledState();
     }
 
     private boolean isWorkflowAuthenticated() {
@@ -534,6 +539,11 @@ public final class TaskListPanel extends ToggleDialog {
         destroyed = true;
         ++requestGeneration;
         workflow.removePropertyChangeListener(workflowListener);
+        if (instructionsDialog != null) {
+            instructionsDialog.dispose();
+        }
+        currentTaskPanel.destroy();
+        showInstructionsAction.destroy();
         super.destroy();
     }
 
@@ -593,6 +603,42 @@ public final class TaskListPanel extends ToggleDialog {
         @Override
         public void actionPerformed(ActionEvent event) {
             releaseReservation();
+        }
+    }
+
+    private final class ShowInstructionsAction extends JosmAction {
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        ShowInstructionsAction() {
+            super(tr("Instructions..."), null, tr("Show task instructions"),
+                    Shortcut.registerShortcut("maproulette:task", tr("MapRoulette: Current task"),
+                            KeyEvent.CHAR_UNDEFINED, Shortcut.NONE),
+                    false, true);
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent event) {
+            final var task = workflow.snapshot().activeTask();
+            if (task == null) {
+                return;
+            }
+            if (instructionsDialog == null) {
+                instructionsDialog = new JDialog(MainApplication.getMainFrame(), false);
+                instructionsDialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
+                instructionsDialog.setContentPane(currentTaskPanel);
+                instructionsDialog.setSize(600, 500);
+                instructionsDialog.setLocationRelativeTo(MainApplication.getMainFrame());
+            }
+            instructionsDialog.setTitle(tr("MapRoulette task {0}: Instructions", task.id()));
+            instructionsDialog.setVisible(true);
+            instructionsDialog.toFront();
+        }
+
+        @Override
+        public void updateEnabledState() {
+            final var snapshot = workflow.snapshot();
+            setEnabled(!snapshot.suspended() && snapshot.activeTask() != null);
         }
     }
 }

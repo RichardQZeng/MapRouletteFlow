@@ -52,6 +52,27 @@ public final class TaskPrimitives {
         return getPrimitiveIdMap(task).keySet();
     }
 
+    /** Resolve task primitive IDs without fetching challenge metadata. */
+    @Nonnull
+    public static Collection<PrimitiveId> getPrimitiveIds(@Nullable Task task, @Nullable String osmIdProperty) {
+        if (task == null) {
+            return Collections.emptyList();
+        }
+        if (!Utils.isStripEmpty(osmIdProperty)) {
+            final var primitives = getPrimitiveIdMap(task, osmIdProperty);
+            if (!primitives.isEmpty()) {
+                return primitives.keySet();
+            }
+        }
+        for (var defaultProperty : ChallengeExtra.DEFAULT_OSM_ID_PROPERTIES) {
+            final var primitives = getPrimitiveIdMap(task, defaultProperty);
+            if (!primitives.isEmpty()) {
+                return primitives.keySet();
+            }
+        }
+        return Collections.emptyList();
+    }
+
     /** Find the referenced primitives that are actually present in a downloaded data set. */
     @Nonnull
     public static Collection<OsmPrimitive> findPrimitives(@Nonnull DataSet dataSet,
@@ -72,7 +93,10 @@ public final class TaskPrimitives {
                 final var challenge = ChallengeCache.challenge(task.parentId());
                 final var property = challenge.extra().osmIdProperty();
                 if (!Utils.isStripEmpty(property)) {
-                    return getPrimitiveIdMap(task, property);
+                    final var primitives = getPrimitiveIdMap(task, property);
+                    if (!primitives.isEmpty()) {
+                        return primitives;
+                    }
                 }
             } catch (IOException ioException) {
                 GuiHelper.runInEDT(() -> ExceptionDialogUtil.explainException(ioException));

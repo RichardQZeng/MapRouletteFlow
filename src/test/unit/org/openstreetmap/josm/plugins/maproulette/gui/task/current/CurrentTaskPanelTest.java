@@ -2,6 +2,7 @@
 package org.openstreetmap.josm.plugins.maproulette.gui.task.current;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.util.Arrays;
 import java.util.List;
@@ -9,6 +10,9 @@ import java.util.List;
 import javax.swing.Action;
 
 import org.junit.jupiter.api.Test;
+import org.openstreetmap.josm.data.osm.DataSet;
+import org.openstreetmap.josm.plugins.maproulette.api.enums.TaskStatus;
+import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.testutils.annotations.Main;
 
@@ -21,6 +25,23 @@ class CurrentTaskPanelTest {
         try {
             assertEquals(List.of("I fixed it!", "Already fixed", "Not an Issue", "Can't Complete", "Skip"),
                     Arrays.stream(panel.actions()).limit(5).map(action -> action.getValue(Action.NAME)).toList());
+        } finally {
+            panel.destroy();
+        }
+    }
+
+    @Test
+    void sameTaskRefreshKeepsInstructionDocumentState() {
+        final var panel = new CurrentTaskPanel();
+        final var task = new Task(100, "task", null, null, 10, "instructions", null, new DataSet(), null,
+                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+        try {
+            panel.refreshModel(task);
+            final var document = panel.instructionDocument();
+
+            panel.refreshModel(task);
+
+            assertSame(document, panel.instructionDocument());
         } finally {
             panel.destroy();
         }

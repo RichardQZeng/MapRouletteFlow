@@ -79,12 +79,6 @@ class TaskStatusAction extends CurrentTaskPanel.InnerAction {
         }
         final var dialog = new CompletionDialog(MainApplication.getMainFrame(), workflow, submissions, task,
                 snapshot.activeChallenge(), result, currentDocumentProvider.get(), completed -> {
-                    if (completed && MainApplication.getMap() != null) {
-                        final var panel = MainApplication.getMap().getToggleDialog(CurrentTaskPanel.class);
-                        if (panel != null) {
-                            panel.refreshModel(null);
-                        }
-                    }
                     updateEnabledState();
                 }, () -> cooperativePreparation.test(task));
         dialog.setVisible(true);

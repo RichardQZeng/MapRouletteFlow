@@ -29,6 +29,8 @@ class TaskPrimitivesTest {
         final var nodeId = TaskPrimitives.getPrimitiveIds(task).iterator().next();
         final var expectedId = new SimplePrimitiveId(9494185766L, OsmPrimitiveType.NODE);
         assertEquals(expectedId, nodeId);
+        assertEquals(java.util.Set.of(expectedId),
+                java.util.Set.copyOf(TaskPrimitives.getPrimitiveIds(task, "osmIdentifier")));
     }
 
     @Test
