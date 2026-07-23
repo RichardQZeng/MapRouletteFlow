@@ -8,6 +8,7 @@ import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonObject;
+import jakarta.json.JsonValue;
 
 /**
  * Utils to avoid some common patterns (e.g., object.containsKey("foo") ? object.getJsonNumber("foo").longValue() : 0)
@@ -32,7 +33,7 @@ public final class ParsingUtils {
     @Nullable
     public static <T> T optionalObject(@Nonnull JsonObject object, @Nonnull String key,
             @Nonnull Function<JsonObject, T> parser) {
-        if (object.containsKey(key)) {
+        if (hasValue(object, key)) {
             return parser.apply(object.getJsonObject(key));
         }
         return null;
@@ -50,7 +51,7 @@ public final class ParsingUtils {
     @Nullable
     public static <T> T optionalArray(@Nonnull JsonObject object, @Nonnull String key,
             @Nonnull Function<JsonArray, T> parser) {
-        if (object.containsKey(key)) {
+        if (hasValue(object, key)) {
             return parser.apply(object.getJsonArray(key));
         }
         return null;
@@ -65,7 +66,7 @@ public final class ParsingUtils {
      */
     @Nullable
     public static Instant optionalInstant(JsonObject object, String key) {
-        if (object.containsKey(key)) {
+        if (hasValue(object, key)) {
             return Instant.parse(object.getString(key));
         }
         return null;
@@ -80,7 +81,7 @@ public final class ParsingUtils {
      */
     @Nullable
     public static Long optionalLong(JsonObject object, String key) {
-        if (object.containsKey(key)) {
+        if (hasValue(object, key)) {
             return object.getJsonNumber(key).longValue();
         }
         return null;
@@ -95,9 +96,13 @@ public final class ParsingUtils {
      */
     @Nullable
     public static Integer optionalInteger(JsonObject object, String key) {
-        if (object.containsKey(key)) {
+        if (hasValue(object, key)) {
             return object.getInt(key);
         }
         return null;
+    }
+
+    private static boolean hasValue(JsonObject object, String key) {
+        return object.containsKey(key) && object.get(key) != JsonValue.NULL;
     }
 }

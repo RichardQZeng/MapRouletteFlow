@@ -23,7 +23,6 @@ import org.openstreetmap.josm.plugins.maproulette.api.model.ChallengePriority;
 import org.openstreetmap.josm.plugins.maproulette.api.model.Task;
 import org.openstreetmap.josm.plugins.maproulette.api.parsers.PointParser;
 import org.openstreetmap.josm.plugins.maproulette.api.parsers.TaskParser;
-import org.openstreetmap.josm.tools.bugreport.BugReport;
 
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
@@ -247,8 +246,8 @@ public final class ChallengeAPI {
             try (var inputstream = client.connect().getContent()) {
                 return parseChallenge(inputstream);
             }
-        } catch (ClassCastException cce) {
-            throw BugReport.intercept(cce).put("Maproulette Challenge:", challengeId);
+        } catch (RuntimeException exception) {
+            throw new IOException("MapRoulette returned an invalid response for challenge " + challengeId, exception);
         } finally {
             client.disconnect();
         }
@@ -330,11 +329,17 @@ public final class ChallengeAPI {
      */
     @Nonnull
     private static ChallengePriority parseChallengePriority(JsonObject object) {
-        return new ChallengePriority(
-                object.containsKey("defaultPriority") ? Priority.values()[object.getInt("defaultPriority")]
-                        : Priority.MEDIUM,
-                object.get("highPriorityRule").toString(), object.get("mediumPriorityRule").toString(),
-                object.get("lowPriorityRule").toString());
+        final var priorityIndex = object.getInt("defaultPriority", Priority.MEDIUM.ordinal());
+        final var defaultPriority = priorityIndex >= 0 && priorityIndex < Priority.values().length
+                ? Priority.values()[priorityIndex]
+                : Priority.MEDIUM;
+        return new ChallengePriority(defaultPriority, priorityRule(object, "highPriorityRule"),
+                priorityRule(object, "mediumPriorityRule"), priorityRule(object, "lowPriorityRule"));
+    }
+
+    private static String priorityRule(JsonObject object, String key) {
+        final var value = object.get(key);
+        return value == null || value == JsonValue.NULL ? "{}" : value.toString();
     }
 
     /**

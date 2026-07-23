@@ -1,11 +1,17 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.plugins.maproulette.api.parsers;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.openstreetmap.josm.plugins.maproulette.util.RecordAssertion.assertRecordsEqual;
 
+import java.net.URI;
 import java.time.Instant;
 
+import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.plugins.maproulette.api.ChallengeAPI;
 import org.openstreetmap.josm.plugins.maproulette.api.enums.Priority;
@@ -22,6 +28,54 @@ import org.openstreetmap.josm.plugins.maproulette.util.MapRouletteConfig;
  */
 @MapRouletteConfig
 class ChallengeParserTest {
+    @Test
+    void parsesOmittedPriorityRulesAndNullOptionalFields() {
+        wireMock().register(get("/api/v2/challenge/50561").willReturn(okJson("""
+                {
+                  "id": 50561,
+                  "name": "Challenge with omitted defaults",
+                  "created": "2024-12-20T01:07:44.406Z",
+                  "modified": "2026-07-22T22:40:24.345Z",
+                  "deleted": false,
+                  "owner": 8794039,
+                  "parent": 57442,
+                  "instruction": "Instructions",
+                  "difficulty": 2,
+                  "enabled": true,
+                  "featured": false,
+                  "cooperativeType": 0,
+                  "popularity": 1,
+                  "checkinComment": "Comment",
+                  "checkinSource": "",
+                  "requiresLocal": false,
+                  "defaultPriority": 0,
+                  "mediumPriorityRule": null,
+                  "defaultZoom": 18,
+                  "minZoom": 3,
+                  "maxZoom": 19,
+                  "limitTags": false,
+                  "limitReviewTags": false,
+                  "isArchived": false,
+                  "lastTaskRefresh": null,
+                  "location": null,
+                  "bounding": null,
+                  "taskStyles": null,
+                  "presets": null
+                }
+                """)));
+
+        final var challenge = assertDoesNotThrow(() -> ChallengeAPI.challenge(50561));
+
+        assertEquals("{}", challenge.priority().highPriorityRule());
+        assertEquals("{}", challenge.priority().mediumPriorityRule());
+        assertEquals("{}", challenge.priority().lowPriorityRule());
+        assertNull(challenge.lastTaskRefresh());
+        assertNull(challenge.location());
+        assertNull(challenge.bounding());
+        assertNull(challenge.extra().taskStyles());
+        assertNull(challenge.extra().presets());
+    }
+
     @Test
     void testChallenge15318() {
         final var challenge = assertDoesNotThrow(() -> ChallengeAPI.challenge(15318));
@@ -47,5 +101,10 @@ class ChallengeParserTest {
                 "{\"type\":\"Polygon\",\"coordinates\":[[[-124.586248289365,32.5435948864956],[-124.586248289365,48.9940324531592],[-114.103130987674,48.9940324531592],[-114.103130987674,32.5435948864956],[-124.586248289365,32.5435948864956]]]}",
                 4, 29734);
         assertRecordsEqual(expected, challenge);
+    }
+
+    private static WireMock wireMock() {
+        final var server = URI.create(org.openstreetmap.josm.plugins.maproulette.config.MapRouletteConfig.getBaseUrl());
+        return new WireMock(server.getHost(), server.getPort());
     }
 }
