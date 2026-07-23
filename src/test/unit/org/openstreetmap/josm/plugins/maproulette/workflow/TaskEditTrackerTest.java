@@ -4,12 +4,14 @@ package org.openstreetmap.josm.plugins.maproulette.workflow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.openstreetmap.josm.command.ChangeNodesCommand;
 import org.openstreetmap.josm.command.ChangePropertyCommand;
 import org.openstreetmap.josm.command.DeleteCommand;
 import org.openstreetmap.josm.command.SequenceCommand;
@@ -57,8 +59,32 @@ class TaskEditTrackerTest {
         assertTrue(comment.contains("Merged"));
         assertTrue(comment.contains("node 100"));
         assertTrue(comment.contains("Tankersley Lake"));
-        assertTrue(comment.contains("removed `landuse=reservoir`"));
-        assertTrue(comment.contains("set `natural=water`, `water=reservoir`"));
+        assertTrue(comment.contains("replaced `landuse=reservoir` with `water=reservoir`"));
+        assertTrue(comment.contains("set `natural=water`"));
+    }
+
+    @Test
+    void composesAbsorbedReservoirNodeAsOneSemanticMerge() {
+        final var dataSet = new DataSet();
+        final var reservoir = node(357601420, 35, -100,
+                Map.of("ele", "2790", "gnis:feature_id", "913069", "landuse", "reservoir", "name",
+                        "Indian Joe Tank"));
+        final var area = area(dataSet, 46185044, Map.of("name", "Indian Joe Tank", "natural", "water"));
+        dataSet.addPrimitive(reservoir);
+        final var context = activate(dataSet);
+        final var removedNodeTags = new HashMap<String, String>();
+        reservoir.getKeys().keySet().forEach(key -> removedNodeTags.put(key, null));
+        final var areaTags = Map.of("ele", "2790", "water", "reservoir");
+        final var areaNodes = new ArrayList<>(area.getNodes());
+        areaNodes.add(areaNodes.size() - 1, reservoir);
+        UndoRedoHandler.getInstance().add(new SequenceCommand("Merge reservoir node into area",
+                new ChangePropertyCommand(dataSet, List.of(reservoir), removedNodeTags),
+                new ChangePropertyCommand(dataSet, List.of(area), areaTags), new ChangeNodesCommand(area, areaNodes)));
+
+        assertEquals(
+                "Merged Indian Joe Tank (node 357,601,420) into Indian Joe Tank (area 46,185,044); "
+                        + "replaced `landuse=reservoir` with `water=reservoir`; transferred `ele=2790`.",
+                tracker.compose(context.task(), context.layer()));
     }
 
     @Test

@@ -31,6 +31,7 @@ import org.openstreetmap.josm.plugins.maproulette.data.TaskPrimitives;
 public final class TaskEditTracker implements PropertyChangeListener {
     private static final TaskEditTracker INSTANCE = new TaskEditTracker(WorkflowController.getInstance());
     private static final int MAX_COMMENT_LENGTH = 5_000;
+    private static final List<String> MERGE_IDENTITY_KEYS = List.of("name", "gnis:feature_id", "ref:gnis", "wikidata");
 
     private final WorkflowController workflow;
     private final Set<Command> commandsAtStart = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -93,32 +94,43 @@ public final class TaskEditTracker implements PropertyChangeListener {
         commands.forEach(command -> touched.addAll(command.getParticipatingPrimitives()));
         final var ordered = touched.stream().sorted(PRIMITIVE_ORDER).toList();
         final var sentences = new ArrayList<String>();
-        final var mergedDeletions = Collections.newSetFromMap(new IdentityHashMap<OsmPrimitive, Boolean>());
+        final var mergedSources = Collections.newSetFromMap(new IdentityHashMap<OsmPrimitive, Boolean>());
+        final var mergedTargets = Collections.newSetFromMap(new IdentityHashMap<OsmPrimitive, Boolean>());
 
         for (var command : commands) {
             final var participants = command.getParticipatingPrimitives();
-            final var deleted = participants.stream().filter(this::wasDeletedDuringTask).sorted(PRIMITIVE_ORDER).toList();
             final var survivors = participants.stream().filter(primitive -> !primitive.isDeleted())
                     .filter(baseline::containsKey).sorted(MERGE_TARGET_ORDER).toList();
-            if (!deleted.isEmpty() && !survivors.isEmpty()) {
-                for (var removed : deleted) {
-                    final var survivor = survivors.stream().filter(candidate -> sharesIdentity(removed, candidate))
-                            .findFirst().orElse(null);
-                    if (survivor != null && mergedDeletions.add(removed) && shouldDescribe(removed)) {
-                        sentences.add(tr("Merged {0} into {1}.", describe(removed), describe(survivor)));
-                    }
+            final var sources = participants.stream()
+                    .filter(primitive -> wasDeletedDuringTask(primitive) || canBeAbsorbedNode(primitive))
+                    .sorted(PRIMITIVE_ORDER).toList();
+            for (var source : sources) {
+                if (mergedSources.contains(source) || !shouldDescribe(source)) {
+                    continue;
+                }
+                final var target = survivors.stream().filter(candidate -> candidate != source)
+                        .filter(candidate -> sharesIdentity(source, candidate))
+                        .filter(candidate -> wasDeletedDuringTask(source) || isAbsorbedInto(source, candidate))
+                        .findFirst().orElse(null);
+                if (target != null) {
+                    mergedSources.add(source);
+                    mergedTargets.add(target);
+                    sentences.add(describeMerge(source, target));
                 }
             }
         }
 
         for (var primitive : ordered) {
+            if (mergedSources.contains(primitive) || mergedTargets.contains(primitive)) {
+                continue;
+            }
             final var before = baseline.get(primitive);
             if (before == null && !primitive.isDeleted()) {
                 sentences.add(tr("Created {0}.", describe(primitive)));
                 continue;
             }
             if (wasDeletedDuringTask(primitive)) {
-                if (!mergedDeletions.contains(primitive) && shouldDescribe(primitive)) {
+                if (shouldDescribe(primitive)) {
                     sentences.add(tr("Deleted {0}.", describe(primitive)));
                 }
                 continue;
@@ -225,16 +237,65 @@ public final class TaskEditTracker implements PropertyChangeListener {
                 || before != null && !before.tags().isEmpty();
     }
 
+    private boolean canBeAbsorbedNode(OsmPrimitive primitive) {
+        final var before = baseline.get(primitive);
+        return primitive instanceof Node && !primitive.isDeleted() && primitive.getKeys().isEmpty() && before != null
+                && !before.tags().isEmpty();
+    }
+
+    private static boolean isAbsorbedInto(OsmPrimitive source, OsmPrimitive target) {
+        return source instanceof Node node && target instanceof Way way && way.isClosed() && way.getNodes().contains(node);
+    }
+
     private boolean sharesIdentity(OsmPrimitive first, OsmPrimitive second) {
         final var firstTags = baseline.containsKey(first) ? baseline.get(first).tags() : first.getKeys();
         final var secondTags = baseline.containsKey(second) ? baseline.get(second).tags() : second.getKeys();
-        for (var key : List.of("name", "gnis:feature_id", "ref:gnis", "wikidata")) {
+        for (var key : MERGE_IDENTITY_KEYS) {
             final var value = firstTags.get(key);
             if (value != null && !value.isBlank() && value.equals(secondTags.get(key))) {
                 return true;
             }
         }
         return false;
+    }
+
+    private String describeMerge(OsmPrimitive source, OsmPrimitive target) {
+        final var sourceBefore = baseline.get(source).tags();
+        final var targetBefore = baseline.get(target).tags();
+        final var targetAfter = target.getKeys();
+        final var handled = new LinkedHashSet<String>();
+        final var changes = new ArrayList<String>();
+        if (("reservoir".equals(sourceBefore.get("landuse")) || "reservoir".equals(targetBefore.get("landuse")))
+                && !targetAfter.containsKey("landuse") && "reservoir".equals(targetAfter.get("water"))) {
+            handled.add("landuse");
+            handled.add("water");
+            changes.add(tr("replaced {0} with {1}", code("landuse=reservoir"), code("water=reservoir")));
+        }
+        final var transferred = new ArrayList<String>();
+        new TreeMap<>(sourceBefore).forEach((key, value) -> {
+            if (!handled.contains(key) && value.equals(targetAfter.get(key))
+                    && !value.equals(targetBefore.get(key))) {
+                handled.add(key);
+                if (!MERGE_IDENTITY_KEYS.contains(key)) {
+                    transferred.add(code(key + "=" + value));
+                }
+            }
+        });
+        if (!transferred.isEmpty()) {
+            changes.add(tr("transferred {0}", String.join(", ", transferred)));
+        }
+        final var remainingBefore = new LinkedHashMap<>(targetBefore);
+        final var remainingAfter = new LinkedHashMap<>(targetAfter);
+        handled.forEach(key -> {
+            remainingBefore.remove(key);
+            remainingAfter.remove(key);
+        });
+        final var remainingChanges = tagsChanged(remainingBefore, remainingAfter);
+        if (!remainingChanges.isEmpty()) {
+            changes.add(remainingChanges);
+        }
+        return changes.isEmpty() ? tr("Merged {0} into {1}.", describe(source), describe(target))
+                : tr("Merged {0} into {1}; {2}.", describe(source), describe(target), String.join("; ", changes));
     }
 
     private String describe(OsmPrimitive primitive) {
