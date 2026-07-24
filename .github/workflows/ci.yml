@@ -50,5 +50,8 @@ jobs:
       java-version: 17
       perform-revision-tagging: false
     permissions:
+      attestations: write
       checks: write
-      contents: read
+      contents: write
+      id-token: write
+      packages: write
