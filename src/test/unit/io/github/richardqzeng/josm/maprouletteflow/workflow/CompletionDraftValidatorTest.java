@@ -39,13 +39,13 @@ class CompletionDraftValidatorTest {
 
     private static Task task() {
         return new Task(1, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED, null, null,
-                null, null, 0, null, null, null, false, null, "");
+                null, 0, null, null, null, false, "");
     }
 
     private static Challenge challenge(boolean limitTags) {
         final var extra = new ChallengeExtra(1, 1, 1, 1, null, null, false, null, null, "allowed", null, limitTags,
                 false, null, null, false, null);
-        return new Challenge(10, "challenge", null, null, null, false, null, null, null, null, extra, null, null, null,
-                null, null, null, null, null);
+        return new Challenge(10, "challenge", null, null, null, false, null, null, extra, null, null, null, null, null,
+                null, null, null);
     }
 }

@@ -1,9 +1,7 @@
 // License: GPL. For details, see LICENSE file.
 package io.github.richardqzeng.josm.maprouletteflow.api.parsers;
 
-import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalArray;
 import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalInstant;
-import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalInteger;
 import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalLong;
 import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalObject;
 
@@ -29,18 +27,15 @@ import io.github.richardqzeng.josm.maprouletteflow.api.enums.TaskStatus;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.ElementCreate;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.ElementTagChange;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.ElementUpdate;
-import io.github.richardqzeng.josm.maprouletteflow.api.model.MapillaryImages;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.OSMChange;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Point;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Task;
-import io.github.richardqzeng.josm.maprouletteflow.api.model.TaskReviewFields;
 import org.openstreetmap.josm.tools.ExceptionUtil;
 import org.openstreetmap.josm.tools.JosmRuntimeException;
 
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import jakarta.json.Json;
-import jakarta.json.JsonArray;
 import jakarta.json.JsonNumber;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonString;
@@ -49,11 +44,6 @@ import jakarta.json.JsonString;
  * Parse tasks
  */
 public final class TaskParser {
-    /**
-     * An empty long to avoid duplicate empty arrays
-     */
-    private static final long[] EMPTY_LONG = new long[0];
-
     /**
      * Don't allow instantiation of this parser
      */
@@ -115,11 +105,9 @@ public final class TaskParser {
                     GeometryParser.parse(obj.getJsonObject("geometries").toString()),
                     optionalObject(obj, "cooperativeWork", TaskParser::parseCooperativeWork),
                     TaskStatus.values()[obj.getInt("status")], optionalInstant(obj, "mappedOn"),
-                    optionalLong(obj, "completedTimeSpent"), optionalLong(obj, "completedBy"),
-                    parseTaskReviewFields(obj.getJsonObject("review")), obj.getInt("priority"),
+                    optionalLong(obj, "completedTimeSpent"), optionalLong(obj, "completedBy"), obj.getInt("priority"),
                     optionalLong(obj, "changesetId"), obj.getString("completionResponses", null),
                     optionalLong(obj, "bundleId"), obj.getBoolean("isBundlePrimary", false),
-                    optionalArray(obj, "mapillaryImages", TaskParser::parseMapillaryImages),
                     obj.getString("errorTags"));
         } catch (IllegalDataException e) {
             throw new JosmRuntimeException(e);
@@ -202,39 +190,6 @@ public final class TaskParser {
             }
         }
         return null;
-    }
-
-    /**
-     * Parse review fields
-     *
-     * @param obj The object with the review fields
-     * @return The parsed object
-     */
-    @Nonnull
-    private static TaskReviewFields parseTaskReviewFields(JsonObject obj) {
-        return new TaskReviewFields(optionalInteger(obj, "reviewStatus"), optionalLong(obj, "reviewRequestedBy"),
-                optionalLong(obj, "reviewedBy"), optionalInstant(obj, "reviewedAt"),
-                optionalLong(obj, "metaReviewedBy"), optionalInteger(obj, "metaReviewedStatus"),
-                optionalInstant(obj, "metaReviewedAt"), optionalInstant(obj, "reviewStartedAt"),
-                optionalLong(obj, "reviewClaimedBy"), optionalInstant(obj, "reviewClaimedAt"),
-                java.util.Objects.requireNonNullElseGet(optionalArray(obj, "additionalReviewers", array -> array
-                        .getValuesAs(JsonNumber.class).stream().mapToLong(JsonNumber::longValue).toArray()),
-                        () -> EMPTY_LONG));
-    }
-
-    /**
-     * Parse mapillary images
-     *
-     * @param array The images to parse
-     * @return The parsed images
-     */
-    @Nonnull
-    private static MapillaryImages parseMapillaryImages(JsonArray array) {
-        return new MapillaryImages(array.getValuesAs(JsonObject.class).stream()
-                .map(obj -> new MapillaryImages.Image(obj.getString("key"), obj.getJsonNumber("lat").doubleValue(),
-                        obj.getJsonNumber("lon").doubleValue(), obj.getString("url_320"), obj.getString("url_640"),
-                        obj.getString("url_1024"), obj.getString("url_2048")))
-                .toArray(MapillaryImages.Image[]::new));
     }
 
     /**

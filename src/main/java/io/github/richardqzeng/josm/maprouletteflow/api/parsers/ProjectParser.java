@@ -1,7 +1,6 @@
 // License: GPL. For details, see LICENSE file.
 package io.github.richardqzeng.josm.maprouletteflow.api.parsers;
 
-import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalArray;
 import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalInstant;
 
 import java.io.InputStream;
@@ -34,7 +33,7 @@ public final class ProjectParser {
                 final var obj = structure.asJsonObject();
                 return new Project(obj.getJsonNumber("id").longValue(), obj.getJsonNumber("owner").longValue(),
                         obj.getString("name"), optionalInstant(obj, "created"), optionalInstant(obj, "modified"),
-                        obj.getString("description"), optionalArray(obj, "grants", GrantParser::parse),
+                        obj.getString("description"),
                         obj.getBoolean("enabled", true), obj.getString("displayName"), obj.getBoolean("deleted", false),
                         obj.getBoolean("featured", false));
             } else {

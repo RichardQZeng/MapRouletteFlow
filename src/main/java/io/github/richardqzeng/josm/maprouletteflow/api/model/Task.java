@@ -27,21 +27,19 @@ import jakarta.annotation.Nullable;
  * @param mappedOn            The date the task was mapped
  * @param completedTimeSpent  The amount of time spent
  * @param completedBy         The user id that completed the task
- * @param review              Review information
  * @param priority            The priority of the task (default is "HIGH")
  * @param changesetId         The changeset where the task was (probably) fixed
  * @param completionResponses The response when the task was completed
  * @param bundleId            The bundle this task is part of
  * @param isBundlePrimary     If the bundle is a primary bundle
- * @param mapillaryImages     Mapillary images to show the user (probably broken since v3 -> v4 api)
  * @param errorTags           The error tags
  */
 public record Task(long id, @Nonnull String name, @Nonnull Instant created, @Nonnull Instant modified, long parentId,
                    @Nullable String instruction,
                    @Nullable Point location, @Nonnull DataSet geometries, @Nullable Object cooperativeWork, @Nonnull TaskStatus status,
-                   @Nullable Instant mappedOn, @Nullable Long completedTimeSpent, @Nullable Long completedBy, @Nonnull TaskReviewFields review,
+                   @Nullable Instant mappedOn, @Nullable Long completedTimeSpent, @Nullable Long completedBy,
                    int priority, @Nullable Long changesetId, @Nullable String completionResponses, @Nullable Long bundleId,
-                   Boolean isBundlePrimary, @Nullable MapillaryImages mapillaryImages, @Nonnull String errorTags) implements TaskClusteredPoint {
+                   Boolean isBundlePrimary, @Nonnull String errorTags) implements TaskClusteredPoint {
     /**
      * Validate the objects for this record
      *
@@ -58,13 +56,11 @@ public record Task(long id, @Nonnull String name, @Nonnull Instant created, @Non
      * @param mappedOn            The date the task was mapped
      * @param completedTimeSpent  The amount of time spent
      * @param completedBy         The user id that completed the task
-     * @param review              Review information
      * @param priority            The priority of the task (default is "HIGH")
      * @param changesetId         The changeset where the task was (probably) fixed
      * @param completionResponses The response when the task was completed
      * @param bundleId            The bundle this task is part of
      * @param isBundlePrimary     If the bundle is a primary bundle
-     * @param mapillaryImages     Mapillary images to show the user (probably broken since v3 -> v4 api)
      * @param errorTags           The error tags
      */
     public Task {

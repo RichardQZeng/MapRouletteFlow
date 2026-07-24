@@ -172,9 +172,9 @@ class FixedUploadCoordinatorTest {
 
     private CompletionDraft enterFixedDraft() {
         final var challenge = new Challenge(10, "challenge", null, null, null, false, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         final var task = new Task(100, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
         final var dataSet = new DataSet();
         editedNode = new Node(new LatLon(0, 0));
         dataSet.addPrimitive(editedNode);

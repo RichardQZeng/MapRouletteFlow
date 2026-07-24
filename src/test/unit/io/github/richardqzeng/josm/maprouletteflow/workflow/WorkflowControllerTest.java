@@ -134,7 +134,6 @@ class WorkflowControllerTest {
         workflow.submissionSucceeded();
         assertEquals(State.CHALLENGE_IDLE, workflow.state());
         assertTrue(workflow.getLockedTasks().isEmpty());
-        assertTrue(workflow.getCompletionDrafts().isEmpty());
     }
 
     @Test
@@ -437,11 +436,11 @@ class WorkflowControllerTest {
 
     private static Task task(long id, long challengeId) {
         return new Task(id, "task", null, null, challengeId, null, null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
     }
 
     private static Challenge challenge(long id) {
         return new Challenge(id, "challenge", null, null, null, false, null, null, null, null, null, null, null, null,
-                null, null, null, null, null);
+                null, null, null);
     }
 }

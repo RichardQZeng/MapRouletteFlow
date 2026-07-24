@@ -17,7 +17,6 @@ import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Challenge;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Task;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.AuthenticatedUser;
-import io.github.richardqzeng.josm.maprouletteflow.gui.ModifiedTask;
 import io.github.richardqzeng.josm.maprouletteflow.gui.preferences.MapRouletteTaskPreference.NextMode;
 import io.github.richardqzeng.josm.maprouletteflow.util.AuthenticationManager;
 import org.openstreetmap.josm.tools.Logging;
@@ -66,8 +65,7 @@ public final class WorkflowController {
      * @param accountOwner non-secret account identity that owns pending work
      * @param completionStatusCommitted whether the status commit point has already passed
      * @param suspended whether transient task operations are paused during map-frame cleanup
-     * @param lockedTasks compatibility view of all tasks locked by the existing UI
-     * @param completionDrafts compatibility view of all drafts created by the existing UI
+     * @param lockedTasks all tasks locked by this workflow
      */
     public record Snapshot(State state, @Nullable Challenge activeChallenge, @Nullable Task reservedTask,
                            @Nullable Task activeTask, @Nullable CompletionDraft completionDraft, NextMode nextMode,
@@ -76,8 +74,7 @@ public final class WorkflowController {
                              @Nullable TaskReservationService.Status reservationStatus,
                               @Nullable AccountOwner accountOwner,
                               boolean completionStatusCommitted,
-                              boolean suspended,
-                              List<Task> lockedTasks, List<ModifiedTask> completionDrafts) {
+                               boolean suspended, List<Task> lockedTasks) {
     }
 
     /** Non-secret identity used to prevent task completion under a replacement account. */
@@ -91,7 +88,6 @@ public final class WorkflowController {
 
     private final PropertyChangeSupport listeners = new PropertyChangeSupport(this);
     private final Map<Long, Task> lockedTasks = new TreeMap<>();
-    private final Map<Long, ModifiedTask> completionDrafts = new TreeMap<>();
     private State state = State.DISCONNECTED;
     private State recoveryState;
     private State releaseReturnState;
@@ -242,7 +238,7 @@ public final class WorkflowController {
         return onEdt(() -> state == State.SUBMITTING && activeChallenge != null
                 && activeChallenge.id() == challengeId && activeTask != null && activeTask.id() == completedId
                 && completionDraft != null && completionDraft.task().id() == completedId && auxiliaryRetry == null
-                && lockedTasks.isEmpty() && completionDrafts.isEmpty());
+                && lockedTasks.isEmpty());
     }
 
     /** Whether challenge metadata can safely replace the current challenge selection. */
@@ -566,11 +562,9 @@ public final class WorkflowController {
             cleanupAllHandles();
             if (reservedTask != null) {
                 lockedTasks.remove(reservedTask.id());
-                completionDrafts.remove(reservedTask.id());
             }
             if (activeTask != null) {
                 lockedTasks.remove(activeTask.id());
-                completionDrafts.remove(activeTask.id());
             }
             reservedTask = null;
             activeTask = null;
@@ -628,7 +622,6 @@ public final class WorkflowController {
         mutate(() -> {
             cleanupAllHandles();
             lockedTasks.clear();
-            completionDrafts.clear();
             activeChallenge = null;
             reservedTask = null;
             activeTask = null;
@@ -699,8 +692,6 @@ public final class WorkflowController {
         mutate(() -> suspended = false);
     }
 
-    // Compatibility collection operations used while the existing multi-task UI is migrated.
-
     public boolean addLockedTask(Task task) {
         Objects.requireNonNull(task);
         return mutateWithResult(() -> lockedTasks.put(task.id(), task) == null);
@@ -720,31 +711,11 @@ public final class WorkflowController {
         return onEdt(() -> lockedTasks.get(id));
     }
 
-    public boolean addCompletionDraft(ModifiedTask draft) {
-        Objects.requireNonNull(draft);
-        return mutateWithResult(() -> completionDrafts.put(draft.task().id(), draft) == null);
-    }
-
-    public boolean removeCompletionDraft(ModifiedTask draft) {
-        Objects.requireNonNull(draft);
-        return mutateWithResult(() -> completionDrafts.remove(draft.task().id()) != null);
-    }
-
-    public List<ModifiedTask> getCompletionDrafts() {
-        return snapshot().completionDrafts();
-    }
-
-    @Nullable
-    public ModifiedTask getCompletionDraft(long id) {
-        return onEdt(() -> completionDrafts.get(id));
-    }
-
     private void clearCompletedTask() {
         cleanupAllHandles();
         if (activeTask != null) {
             completedTaskId = activeTask.id();
             lockedTasks.remove(activeTask.id());
-            completionDrafts.remove(activeTask.id());
         }
         activeTask = null;
         completionDraft = null;
@@ -766,8 +737,7 @@ public final class WorkflowController {
     }
 
     private boolean hasPendingWorkOnEdt() {
-        return reservedTask != null || activeTask != null || completionDraft != null || !lockedTasks.isEmpty()
-                || !completionDrafts.isEmpty();
+        return reservedTask != null || activeTask != null || completionDraft != null || !lockedTasks.isEmpty();
     }
 
     private boolean canRequestCandidateOnEdt() {
@@ -867,9 +837,7 @@ public final class WorkflowController {
     private Snapshot snapshotOnEdt() {
         return new Snapshot(state, activeChallenge, reservedTask, activeTask, completionDraft, nextMode, editLayer,
                 auxiliaryRetry, completionChangesetId, completedTaskId, reservationStatus,
-                accountOwner, completionStatusCommitted, suspended,
-                List.copyOf(lockedTasks.values()),
-                List.copyOf(completionDrafts.values()));
+                accountOwner, completionStatusCommitted, suspended, List.copyOf(lockedTasks.values()));
     }
 
     private void mutate(Runnable mutation) {

@@ -23,7 +23,6 @@ import io.github.richardqzeng.josm.maprouletteflow.api.model.ElementUpdate;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.OSMChange;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Point;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Task;
-import io.github.richardqzeng.josm.maprouletteflow.api.model.TaskReviewFields;
 import io.github.richardqzeng.josm.maprouletteflow.util.MapRouletteConfig;
 
 /**
@@ -47,9 +46,7 @@ class TaskParserTest {
                                                 new String[0])),
                                 new ElementUpdate(131190351L, OsmPrimitiveType.WAY, Integer.MIN_VALUE,
                                         new ElementTagChange(Collections.emptyMap(), new String[] { "source" })) }),
-                TaskStatus.CREATED, null, null, null,
-                new TaskReviewFields(null, null, null, null, null, null, null, null, null, null), 0, -1L, null, null,
-                false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, -1L, null, null, false, "");
         assertRecordsEqual(expected, task);
         // Check geometries
         final var way = task.geometries().getWays().iterator().next();
@@ -73,9 +70,8 @@ class TaskParserTest {
         final var task = assertDoesNotThrow(() -> TaskAPI.start(134808786));
         final var expected = new Task(134808786, "node/-103005", Instant.parse("2022-08-04T15:44:15.335Z"),
                 Instant.parse("2022-08-04T15:44:15.335Z"), 28467, "", new Point(43.3719671, -82.9782727),
-                task.geometries(), task.cooperativeWork(), TaskStatus.CREATED, null, null, null,
-                new TaskReviewFields(null, null, null, null, null, null, null, null, null, null), 0, -1L, null, null,
-                false, null, "");
+                task.geometries(), task.cooperativeWork(), TaskStatus.CREATED, null, null, null, 0, -1L, null, null,
+                false, "");
         assertRecordsEqual(expected, task);
         final var actualData = expected.cooperativeWorkAsOsc();
         assertNotNull(actualData);
@@ -97,9 +93,7 @@ class TaskParserTest {
                 Instant.parse("2022-10-18T03:19:56.028Z"), 27887, "", new Point(39.082404, -108.4962538),
                 task.geometries(), task.cooperativeWork(), TaskStatus.TOO_HARD,
                 Instant.parse("2022-10-18T03:19:56.028Z"), 923162L, 11197L,
-                new TaskReviewFields(1, 11197L, 9724L, Instant.parse("2022-10-18T07:09:14.455Z"), null, null, null,
-                        Instant.parse("2022-10-18T07:08:52.469Z"), null, null),
-                0, -1L, null, null, false, null, "");
+                0, -1L, null, null, false, "");
         assertRecordsEqual(expected, task);
     }
 }

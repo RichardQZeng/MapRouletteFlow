@@ -39,8 +39,7 @@ class MapRouletteTaskPreferenceTest {
         final var workflow = WorkflowController.getInstance();
         workflow.connect();
         workflow.selectChallenge(new io.github.richardqzeng.josm.maprouletteflow.api.model.Challenge(20, "challenge",
-                null, null, null, false, null, null, null, null, null, null, null, null, null, null, null, null,
-                null));
+                null, null, null, false, null, null, null, null, null, null, null, null, null, null, null));
         MapRouletteTaskPreference.setNextMode(20, NextMode.NEARBY);
 
         MapRouletteTaskPreference.setNextMode(NextMode.RANDOM);

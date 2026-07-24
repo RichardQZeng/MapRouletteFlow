@@ -37,9 +37,7 @@ Included:
 Deferred:
 
 - Searchable challenge discovery.
-- Multi-task preview batches.
 - Automatic OSM download before user confirmation.
-- Full bundle and review/revision parity.
 - Cooperative OSM object creation.
 
 ## Authentication
@@ -64,9 +62,9 @@ The plugin supports two authentication modes:
 GET /api/v2/user/whoami
 ```
 
-The plugin displays only the MapRoulette account, linked OSM identity, and
-current score. The complete response is discarded because it contains private
-account data and echoes the API key.
+The plugin displays only the MapRoulette account, linked OSM identity, current
+score, and achievement IDs. The complete response is discarded because it
+contains private account data and echoes the API key.
 
 Direct keys remain in memory by default. `Remember key` is explicit and warns
 that ordinary JOSM preference storage is not a secure credential vault.
@@ -284,4 +282,4 @@ plugin stops and offers Try Again, Remove from Exclusions, or Leave Challenge.
 - Selecting or previewing a task will not download OSM data automatically.
 - The plugin will not guarantee a different replacement when the server keeps
   returning the same excluded candidate.
-- The first release will not support multiple simultaneous active tasks.
+- The plugin does not support multiple simultaneous active tasks.

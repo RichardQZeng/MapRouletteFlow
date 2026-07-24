@@ -31,9 +31,9 @@ class WorkflowDraftStoreTest {
         workflow.shutdown();
         WorkflowDraftStore.clear();
         challenge = new Challenge(10, "challenge", null, null, null, false, null, null, null, null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null);
         task = new Task(100, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED, null, null,
-                null, null, 0, null, null, null, false, null, "");
+                null, 0, null, null, null, false, "");
         layer = new OsmDataLayer(new DataSet(), "test", null);
     }
 

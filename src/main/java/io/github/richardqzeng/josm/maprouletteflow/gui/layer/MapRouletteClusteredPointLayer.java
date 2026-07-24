@@ -50,7 +50,6 @@ import io.github.richardqzeng.josm.maprouletteflow.api.enums.TaskStatus;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Identifier;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.TaskClusteredPoint;
 import io.github.richardqzeng.josm.maprouletteflow.api_caching.TaskCache;
-import io.github.richardqzeng.josm.maprouletteflow.data.HiddenList;
 import io.github.richardqzeng.josm.maprouletteflow.gui.task.list.TaskListPanel;
 import io.github.richardqzeng.josm.maprouletteflow.gui.task.list.TaskPreviewBounds;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.WorkflowController;
@@ -215,8 +214,7 @@ public class MapRouletteClusteredPointLayer extends Layer implements MouseListen
         final var statusSymbol = new Symbol(SymbolShape.SQUARE, 25, null, fixedColor, fixedColor);
         final var disabledStatusSymbol = new Symbol(SymbolShape.SQUARE, 13, null, fixedColor, fixedColor);
         for (var point : this.pointBucket.search(box)) {
-            if (WorkflowController.getInstance().getLockedTask(point.id()) == null && !TaskCache.isHidden(point)
-                    && !HiddenList.isHidden(point.id())) {
+            if (WorkflowController.getInstance().getLockedTask(point.id()) == null && !TaskCache.isHidden(point)) {
                 final boolean isSelected = this.selected.contains(point) || listSelected.contains(point);
                 final var symbolColor = switch (point.status()) {
                 case FIXED -> fixedColor;

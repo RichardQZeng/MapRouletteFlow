@@ -56,9 +56,9 @@ class EarlyUploadHookTest {
         final var general = new ChallengeGeneral(1, 1, "instructions", 1, "", true, false, 0, 0,
                 "challenge comment", "challenge source", false, null, false);
         final var challenge = new Challenge(10, "challenge", null, null, null, false, null, general, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         final var task = new Task(100, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
         workflow.connect();
         workflow.selectChallenge(challenge);
         workflow.reserveCandidate(task);

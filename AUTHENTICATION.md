@@ -26,8 +26,8 @@ apiKey: <configured-key>
 A valid key returns HTTP 200 and the authenticated MapRoulette user. An invalid
 or malformed key returns HTTP 401. The response contains more private data than
 the plugin needs, including an echoed API key, so the implementation must parse
-only the account ID, linked OSM identity, display name, and score and then
-discard the body.
+only the account ID, linked OSM identity, display name, score, and achievement
+IDs and then discard the body.
 
 ## Automatic Mode
 

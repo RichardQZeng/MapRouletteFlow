@@ -248,7 +248,7 @@ class CompletionSubmissionControllerTest {
     @Test
     void successfulCompletionAutomaticallyReservesSelectedNearbyTaskWithoutDownloading() throws IOException {
         final var candidate = new Task(200, "next", null, null, 10, null, null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         nextResult = new TaskReservationService.Result(TaskReservationService.Status.RESERVED, candidate);
         final var nearbyDraft = new CompletionDraft(task, CompletionResult.CANT_COMPLETE, "", "", null, Map.of(),
                 NextMode.NEARBY);
@@ -309,9 +309,9 @@ class CompletionSubmissionControllerTest {
 
     private Task enterActiveWorkflow() {
         final var challenge = new Challenge(10, "challenge", null, null, null, false, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         final var activeTask = new Task(100, "task", null, null, 10, null, null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         workflow.connect();
         workflow.selectChallenge(challenge);
         workflow.reserveCandidate(activeTask);

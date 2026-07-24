@@ -78,7 +78,7 @@ class ChallengeAPITest {
 
         assertEquals(266668897, task.id());
         assertNull(task.cooperativeWork());
-        assertNull(task.mapillaryImages());
+        assertNull(task.bundleId());
     }
 
     private static WireMock wireMock() {

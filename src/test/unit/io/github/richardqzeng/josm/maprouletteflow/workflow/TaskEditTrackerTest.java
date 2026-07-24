@@ -172,9 +172,9 @@ class TaskEditTrackerTest {
     private Context activate(DataSet dataSet, DataSet taskGeometries) {
         tracker.start();
         final var challenge = new Challenge(10, "challenge", null, null, null, false, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         final var task = new Task(1000, "task", null, null, challenge.id(), null, null, taskGeometries, null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         final var layer = new OsmDataLayer(dataSet, "task edits", null);
         workflow.connect();
         workflow.selectChallenge(challenge);

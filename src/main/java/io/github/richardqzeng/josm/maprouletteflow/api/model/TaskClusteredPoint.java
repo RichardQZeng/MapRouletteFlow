@@ -6,7 +6,7 @@ import java.time.Instant;
 import io.github.richardqzeng.josm.maprouletteflow.api.enums.TaskStatus;
 
 /**
- * Commonalities between {@link Task} and {@link ClusteredPoint}
+ * Properties consumed by the task preview layer.
  */
 public interface TaskClusteredPoint extends Locatable {
     /**

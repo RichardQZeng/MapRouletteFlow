@@ -26,6 +26,6 @@ class CurrentTaskZoomTest {
 
     private static Task task(Point location) {
         return new Task(100, "task", null, null, 10, null, location, new DataSet(), null, TaskStatus.CREATED, null,
-                null, null, null, 0, null, null, null, false, null, "");
+                null, null, 0, null, null, null, false, "");
     }
 }

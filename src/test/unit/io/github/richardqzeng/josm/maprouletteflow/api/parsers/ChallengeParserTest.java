@@ -4,7 +4,6 @@ package io.github.richardqzeng.josm.maprouletteflow.api.parsers;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static io.github.richardqzeng.josm.maprouletteflow.util.RecordAssertion.assertRecordsEqual;
 
@@ -14,12 +13,9 @@ import java.time.Instant;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Test;
 import io.github.richardqzeng.josm.maprouletteflow.api.ChallengeAPI;
-import io.github.richardqzeng.josm.maprouletteflow.api.enums.Priority;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Challenge;
-import io.github.richardqzeng.josm.maprouletteflow.api.model.ChallengeCreation;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.ChallengeExtra;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.ChallengeGeneral;
-import io.github.richardqzeng.josm.maprouletteflow.api.model.ChallengePriority;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Point;
 import io.github.richardqzeng.josm.maprouletteflow.util.MapRouletteConfig;
 
@@ -29,7 +25,7 @@ import io.github.richardqzeng.josm.maprouletteflow.util.MapRouletteConfig;
 @MapRouletteConfig
 class ChallengeParserTest {
     @Test
-    void parsesOmittedPriorityRulesAndNullOptionalFields() {
+    void parsesNullOptionalFields() {
         wireMock().register(get("/api/v2/challenge/50561").willReturn(okJson("""
                 {
                   "id": 50561,
@@ -66,9 +62,6 @@ class ChallengeParserTest {
 
         final var challenge = assertDoesNotThrow(() -> ChallengeAPI.challenge(50561));
 
-        assertEquals("{}", challenge.priority().highPriorityRule());
-        assertEquals("{}", challenge.priority().mediumPriorityRule());
-        assertEquals("{}", challenge.priority().lowPriorityRule());
         assertNull(challenge.lastTaskRefresh());
         assertNull(challenge.location());
         assertNull(challenge.bounding());
@@ -89,10 +82,6 @@ class ChallengeParserTest {
                         "Add direction=forward/backward/both to [highway=stop](https://wiki.openstreetmap.org/wiki/Tag:highway%3Dstop).",
                         true, false, 0, 1674515454, "Add tag direction to highway=stop - USA LA Timezone #maproulette",
                         "", false, new long[0], false),
-                new ChallengeCreation(
-                        "area[name=\"America/Los_Angeles Timezone\"]->.a;\nnode[\"highway\"=\"stop\"][!\"direction\"][!\"stop\"](area.a);\nway(bn)[\"highway\"][\"oneway\"!=\"yes\"];\nnode(w)[\"highway\"=\"stop\"][!\"direction\"];\nout skel;",
-                        "", "node"),
-                new ChallengePriority(Priority.LOW, "{}", "{}", "{}"),
                 new ChallengeExtra(19, 3, 19, -1, "", "", false, "", "", null, null, false, false, "[]", "", false,
                         null),
                 3, "Request timeout to overpass-api.de/178.63.48.217:80 after 120000 ms",

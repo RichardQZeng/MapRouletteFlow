@@ -73,7 +73,7 @@ class TaskListPanelTest {
     void currentTaskActionsAppearInMainPanelAfterActivation() {
         workflow.connect();
         workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
         final var task = task(100);
         workflow.reserveCandidate(task);
         workflow.beginDownload(null);
@@ -94,9 +94,9 @@ class TaskListPanelTest {
     void controllerReservationIsTheOnlyPanelSelection() {
         workflow.connect();
         workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
         final var task = new Task(100, "task", null, null, 10, "instructions", null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         workflow.reserveCandidate(task);
         final var panel = new TaskListPanel();
         try {
@@ -148,7 +148,7 @@ class TaskListPanelTest {
     private Task enterSubmittingTask() {
         workflow.connect();
         workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
         final var task = task(100);
         workflow.reserveCandidate(task);
         workflow.beginDownload(null);
@@ -162,7 +162,7 @@ class TaskListPanelTest {
 
     private static Task task(long id) {
         return new Task(id, "task", null, null, 10, "instructions", null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
     }
 
     private static Stream<Component> descendants(Container container) {

@@ -20,8 +20,9 @@ Goal: establish a build and test environment before changing behavior.
 
 Work:
 
-- Place the repository in a JOSM plugins checkout containing the parent
-  `pom.xml`, `build-common.xml`, and `00_core_tools` directory.
+- Run Maven from the standalone repository. For Ant, place the repository in a
+  JOSM plugins checkout containing `build-common.xml` and its support
+  directories.
 - Confirm Maven and Ant produce the canonical `MapRouletteFlow.jar` artifact.
 - Record inherited test failures separately from new regressions.
 - Verify the external artifact identity is `MapRouletteFlow`, the entry class is
@@ -62,7 +63,7 @@ Work:
 - Scope remembered/cached keys by MapRoulette base URL and active OSM user.
 - Clear the active key on HTTP 401, account change, server change, or rotation.
 - Add `GET /user/whoami` and parse only user ID, linked OSM identity, display
-  name, and score.
+  name, score, and achievement IDs.
 - Add `Test Connection` and authenticated-account display.
 - Ensure validation uses only the candidate `apiKey` header and no unrelated
   session credential.
@@ -139,7 +140,7 @@ Primary files:
 
 - `gui/task/list/TaskListPanel.java`
 - `api/ChallengeAPI.java`
-- `api/TaskAPI.java`
+- `api/TaskCompletionAPI.java`
 - `workflow/TaskReservationService.java`
 - `workflow/WorkflowController.java`
 - `gui/layer/MapRouletteClusteredPointLayer.java`
@@ -343,7 +344,6 @@ Work:
 - Persist recoverable workflow drafts without credentials.
 - Respect cooperative tag-change Keep checkboxes.
 - Ensure failed or cancelled cooperative operations never queue Fixed.
-- Correct `tasksNearby` handling of `excludeSelfLocked` where still used.
 - Remove listeners during panel and plugin teardown.
 - Define synchronization/thread confinement for layer and workflow data.
 - Handle unsupported cooperative object creation explicitly.

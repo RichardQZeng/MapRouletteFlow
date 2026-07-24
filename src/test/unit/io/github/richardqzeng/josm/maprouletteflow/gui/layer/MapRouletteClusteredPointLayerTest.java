@@ -44,7 +44,7 @@ class MapRouletteClusteredPointLayerTest {
         final var geometries = new DataSet();
         geometries.addPrimitive(new Node(new LatLon(5, 6)));
         final var task = new Task(3, "geometry", null, null, 10, null, null, geometries, null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
         final var layer = new MapRouletteClusteredPointLayer(null, List.of(task));
         try {
             assertEquals(5, layer.getDataBounds().getMinLat());
@@ -56,6 +56,6 @@ class MapRouletteClusteredPointLayerTest {
 
     private static Task task(long id, double lat, double lon) {
         return new Task(id, "task", null, null, 10, null, new Point(lat, lon), new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
     }
 }

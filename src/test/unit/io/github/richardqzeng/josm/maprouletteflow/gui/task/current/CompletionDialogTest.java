@@ -43,7 +43,7 @@ class CompletionDialogTest {
     void namedInstructionSelectIsRequiredAndProducesCurrentWebResponseBodyValues() {
         final var task = new Task(1, "task", null, null, 10,
                 "[select \"Choose one\" name=\"answer\" values=\"yes, no\"]", null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         final var panel = new HtmlPanel();
         panel.setText(MRGuiHelper.getInstructionText(task));
         final var document = (HTMLDocument) panel.getEditorPane().getDocument();
@@ -63,7 +63,7 @@ class CompletionDialogTest {
     void namedInstructionCheckboxProducesBooleanWebResponse() {
         final var task = new Task(1, "task", null, null, 10,
                 "[checkbox \"I checked this\" name=\"confirmed\"]", null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         final var panel = new HtmlPanel();
         panel.setText(MRGuiHelper.getInstructionText(task));
         final var document = (HTMLDocument) panel.getEditorPane().getDocument();
@@ -80,7 +80,7 @@ class CompletionDialogTest {
     @Test
     void generatedCommentPrefillsOnlyNewFixedDrafts() {
         final var task = new Task(1, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
         final var prior = new CompletionDraft(task, CompletionResult.FIXED, "Mapper text", "", null, Map.of(),
                 NextMode.RANDOM);
 

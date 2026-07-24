@@ -40,6 +40,6 @@ class TaskPreviewBoundsTest {
 
     private static Task task(DataSet geometries, Point location) {
         return new Task(100, "task", null, null, 10, null, location, geometries, null, TaskStatus.CREATED, null,
-                null, null, null, 0, null, null, null, false, null, "");
+                null, null, 0, null, null, null, false, "");
     }
 }

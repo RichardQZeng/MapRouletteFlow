@@ -39,8 +39,8 @@ class ReservationLockRefresherTest {
         workflow.shutdown();
         workflow.connect();
         workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
         workflow.reserveCandidate(new Task(100, "task", null, null, 10, null, null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, ""));
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, ""));
     }
 }

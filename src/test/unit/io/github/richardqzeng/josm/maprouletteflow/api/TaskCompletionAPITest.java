@@ -105,7 +105,7 @@ class TaskCompletionAPITest {
 
     private static CompletionDraft draft(Boolean requestReview, String tags) {
         final var task = new Task(42, "task", null, null, 10, null, null, new DataSet(), null, TaskStatus.CREATED,
-                null, null, null, null, 0, null, null, null, false, null, "");
+                null, null, null, 0, null, null, null, false, "");
         return new CompletionDraft(task, CompletionResult.NOT_AN_ISSUE, "", tags, requestReview,
                 Map.of("choice", "yes", "checked", true), NextMode.RANDOM);
     }

@@ -40,7 +40,7 @@ class TaskDownloadServiceTest {
         workflow.shutdown();
         workflow.connect();
         workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
         reservedTask = task("reserved");
         workflow.reserveCandidate(reservedTask);
     }
@@ -244,7 +244,7 @@ class TaskDownloadServiceTest {
 
     private static Task task(String name) {
         return new Task(100, name, null, null, 10, "instructions", new Point(50, 60), new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
     }
 
     private static OsmDataLayer layer() {

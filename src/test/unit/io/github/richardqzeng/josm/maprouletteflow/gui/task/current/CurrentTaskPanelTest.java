@@ -34,7 +34,7 @@ class CurrentTaskPanelTest {
     void sameTaskRefreshKeepsInstructionDocumentState() {
         final var panel = new CurrentTaskPanel();
         final var task = new Task(100, "task", null, null, 10, "instructions", null, new DataSet(), null,
-                TaskStatus.CREATED, null, null, null, null, 0, null, null, null, false, null, "");
+                TaskStatus.CREATED, null, null, null, 0, null, null, null, false, "");
         try {
             panel.refreshModel(task);
             final var document = panel.instructionDocument();

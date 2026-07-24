@@ -17,8 +17,6 @@ import jakarta.annotation.Nullable;
  * @param deleted              {@code true} if the challenge is deleted
  * @param infoLink             A link for more information
  * @param general              The general challenge information
- * @param creation             The challenge creation information (only used for new challenges)
- * @param priority             The default priority of the challenge tasks
  * @param extra                Any extra information
  * @param status               The current status of the challenge
  * @param statusMessage        The status message
@@ -31,8 +29,7 @@ import jakarta.annotation.Nullable;
  */
 public record Challenge(long id, String name, Instant created, Instant modified,
                         @Nullable String description, boolean deleted, @Nullable String infoLink,
-                        @Nonnull ChallengeGeneral general, @Nonnull ChallengeCreation creation,
-                        @Nonnull ChallengePriority priority, @Nonnull ChallengeExtra extra,
+                         @Nonnull ChallengeGeneral general, @Nonnull ChallengeExtra extra,
                         @Nullable Integer status, @Nullable String statusMessage, @Nullable Instant lastTaskRefresh,
                         @Nullable Instant dataOriginDate, @Nullable Point location, @Nullable String bounding,
                         @Nullable Integer completionPercentage, @Nullable Integer tasksRemaining) implements Locatable {
