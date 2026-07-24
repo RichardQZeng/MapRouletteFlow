@@ -1,4 +1,4 @@
-# MapRouletteWeb Implementation Plan
+# MapRoulette Flow Implementation Plan
 
 This document implements the behavior defined in [PLAN.md](PLAN.md). Research
 findings are retained separately and are not the authoritative product
@@ -22,12 +22,13 @@ Work:
 
 - Place the repository in a JOSM plugins checkout containing the parent
   `pom.xml`, `build-common.xml`, and `00_core_tools` directory.
-- Confirm Maven and Ant produce the `MapRouletteWeb` artifact.
+- Confirm Maven and Ant produce the canonical `MapRouletteFlow.jar` artifact.
 - Record inherited test failures separately from new regressions.
-- Verify that the external artifact identity is `MapRouletteWeb` while the
-  initial Java package remains `org.openstreetmap.josm.plugins.maproulette`.
-- Document that MapRoulette and MapRouletteWeb must not be enabled together
-  during the shared-package/shared-preference compatibility phase.
+- Verify the external artifact identity is `MapRouletteFlow`, the entry class is
+  `io.github.richardqzeng.josm.maprouletteflow.MapRouletteFlowPlugin`, and no
+  classes remain in the official plugin package.
+- Verify MapRoulette Flow and official MapRoulette can remain enabled together,
+  while documenting that only one task workflow may be active at a time.
 
 Exit criteria:
 
@@ -139,10 +140,8 @@ Primary files:
 - `gui/task/list/TaskListPanel.java`
 - `api/ChallengeAPI.java`
 - `api/TaskAPI.java`
-- `actions/downloadtasks/MapRouletteDownloadTask.java`
-- `actions/downloadtasks/MapRouletteDownloadChallengeTask.java`
-- `actions/DownloadTasks.java`
-- `actions/GoToTaskLocation.java`
+- `workflow/TaskReservationService.java`
+- `workflow/WorkflowController.java`
 - `gui/layer/MapRouletteClusteredPointLayer.java`
 
 Work:
@@ -185,7 +184,7 @@ Goal: make `Start & Download` prepare JOSM for editing end to end.
 
 Primary files:
 
-- `gui/task/list/LockUnlockTaskAction.java`
+- `workflow/TaskDownloadService.java`
 - `data/TaskPrimitives.java`
 - task geometry/bounds helpers
 
@@ -270,7 +269,7 @@ Goal: submit Fixed only after the relevant JOSM upload actually succeeds.
 Primary files:
 
 - `io/upload/EarlyUploadHook.java`
-- `io/upload/LateUploadHook.java`
+- `io/upload/FixedUploadCoordinator.java`
 - workflow and completion controllers
 
 Work:

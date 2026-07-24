@@ -1,45 +1,49 @@
-# MapRouletteWeb
+# MapRoulette Flow
 
-MapRouletteWeb is a JOSM plugin aimed at bringing MapRoulette's web-style
-challenge workflow into JOSM. The repository starts from the existing
-[JOSM MapRoulette plugin](https://github.com/JOSM/MapRoulette) and retains its
-GPL license and original authorship.
+MapRoulette Flow is a JOSM plugin for a focused, web-style MapRoulette challenge workflow.
 
-The plugin implements the focused web-style workflow described below.
+MapRoulette Flow began as a fork of the original [JOSM MapRoulette plugin](https://github.com/JOSM/MapRoulette), based on upstream commit `d96c4634fc55ff47267e3844849a85dfa6301051`. The original plugin was authored by Taylor Smock, with additional upstream contributors. Since that starting point, MapRoulette Flow has changed direction toward a one-challenge, one-task workflow and is developed as a separate JOSM plugin maintained by Richard Zeng.
 
 ## Workflow
 
 ```text
 Load challenge by ID or URL
--> Preview prioritized tasks
--> Explicitly start and lock a task
+-> Preview one prioritized task
+-> Explicitly start and lock the task
 -> Download editable OSM data
 -> Edit and choose a completion result
 -> Confirm comment, tags, review, and next-task mode
--> Gate Fixed completion on successful OSM upload
+-> Gate Fixed completion on a successful OSM upload
 -> Submit to MapRoulette and preview the next task
 ```
 
-See [PLAN.md](PLAN.md) for the agreed product behavior and scope.
+The plugin also provides active-task release and re-download, task-aware zoom and selection, account progress and achievements, restart recovery, and editable comments generated from the task's JOSM edits.
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for engineering milestones,
-acceptance criteria, and verification.
+## Installation
 
-See [AUTHENTICATION.md](AUTHENTICATION.md) for the API-key format, automatic and
-direct setup behavior, startup validation, and task-point attribution.
+Published releases use the canonical artifact name `MapRouletteFlow.jar`.
 
-## Current Behavior
+For manual installation, download the JAR from the [latest GitHub release](https://github.com/RichardQZeng/MapRouletteFlow/releases/latest), place it in the `plugins` directory under the JOSM user-data directory, and restart JOSM. Enable **MapRoulette Flow** in **Preferences > Plugins** if it is not already enabled.
 
-The plugin validates available remembered credentials at startup, remembers the
-last successfully loaded challenge ID without automatically reserving it, and
-provides a single-task reservation, editing, upload, and five-result completion
-flow. The challenge input includes a Clear action for forgetting the saved ID.
+After acceptance into JOSM's external plugin list, MapRoulette Flow can be installed and updated directly from **Preferences > Plugins**.
+
+Requirements:
+
+- Java 17 or later.
+- JOSM revision 19528 or later. The release build verifies this minimum before publication.
+- A MapRoulette API key, either read from the active OSM account preferences or entered directly.
+
+## Coexistence
+
+MapRoulette Flow has its own Java package, plugin identity, preferences, shortcuts, caches, resources, and recovery state. It can be installed and enabled alongside the official MapRoulette plugin.
+
+Only one MapRoulette task workflow should be active at a time. Both plugins use the same MapRoulette account and JOSM upload lifecycle, so operating active tasks in both simultaneously is not supported in the initial release. MapRoulette Flow does not claim global `maproulette.org` Open Location URLs; paste a challenge ID or URL into its panel instead.
+
+MapRoulette protocol values remain shared intentionally, including the default remote OSM preference `maproulette_apikey_v2` and standard `maproulette:*` changeset tags.
 
 ## Build
 
-Maven builds are standalone and download the current JOSM snapshot artifacts
-from the JOSM repository. The Ant build remains compatible with the shared JOSM
-plugins checkout used by JOSM CI.
+The standalone Maven build downloads JOSM snapshot artifacts from the JOSM repository. The Ant build remains compatible with the shared JOSM plugins checkout used by JOSM CI.
 
 ```text
 mvn test
@@ -47,17 +51,20 @@ mvn spotless:check
 mvn verify
 ```
 
-## Package Compatibility
+The publishable Maven artifact is generated at `target/dist/MapRouletteFlow.jar`.
 
-The Java package and entry class intentionally remain
-`org.openstreetmap.josm.plugins.maproulette.MapRoulette` during the initial
-fork. This keeps the first changes small while the external project and plugin
-artifact are named `MapRouletteWeb`.
+## Documentation
 
-Do not enable the original MapRoulette plugin and MapRouletteWeb at the same
-time during this compatibility phase; they register overlapping UI and upload
-integrations and share preference keys.
+- [Product behavior](PLAN.md)
+- [Implementation and release gates](IMPLEMENTATION_PLAN.md)
+- [Authentication and credential handling](AUTHENTICATION.md)
+- [Authors and upstream provenance](AUTHORS.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+## Support
+
+Report bugs and feature requests at <https://github.com/RichardQZeng/MapRouletteFlow/issues>.
 
 ## License
 
-GPLv3 or any later version. See [LICENSE](LICENSE).
+MapRoulette Flow is distributed under GPL-3.0-or-later. See [LICENSE](LICENSE). Inherited and third-party attribution is documented in [AUTHORS.md](AUTHORS.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,4 +1,4 @@
-# MapRouletteWeb Product Plan
+# MapRoulette Flow Product Plan
 
 ## Objective
 
@@ -102,8 +102,8 @@ Task-changing controls remain disabled until authentication succeeds.
 
 The existing `Task List` settings tab becomes `Exclusions` and preserves:
 
-- `maproulette.ignore.tasks`
-- `maproulette.ignore.challenges`
+- `maprouletteflow.ignore.tasks`
+- `maprouletteflow.ignore.challenges`
 
 The existing `Keep` behavior remains: checked keeps the item excluded;
 unchecked followed by OK removes the exclusion.

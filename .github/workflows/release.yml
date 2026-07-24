@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  attestations: write
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build release
+        run: >-
+          mvn --batch-mode --no-transfer-progress clean verify spotless:check
+          -Dplugin.version=${{ github.run_number }}
+          -Dplugin.dist.dir=${{ github.workspace }}/dist
+      - name: Audit manifest
+        shell: bash
+        run: |
+          test -f dist/MapRouletteFlow.jar
+          manifest="$(unzip -p dist/MapRouletteFlow.jar META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n //g')"
+          grep -q '^Plugin-Class: io.github.richardqzeng.josm.maprouletteflow.MapRouletteFlowPlugin$' <<< "$manifest"
+          grep -q '^Plugin-Version: ${{ github.run_number }}$' <<< "$manifest"
+          grep -q '^Plugin-Mainversion: 19528$' <<< "$manifest"
+          grep -q '^Plugin-Canloadatruntime: false$' <<< "$manifest"
+          jar tf dist/MapRouletteFlow.jar > "$RUNNER_TEMP/maprouletteflow-entries.txt"
+          grep -qx 'images/maprouletteflow/plugin.svg' "$RUNNER_TEMP/maprouletteflow-entries.txt"
+          grep -qx 'images/dialogs/maprouletteflow/plugin.svg' "$RUNNER_TEMP/maprouletteflow-entries.txt"
+          if grep -q '^org/openstreetmap/josm/plugins/maproulette/' "$RUNNER_TEMP/maprouletteflow-entries.txt"; then
+            echo 'Official MapRoulette package found in MapRoulette Flow JAR' >&2
+            exit 1
+          fi
+      - name: Package source and checksums
+        shell: bash
+        run: |
+          git archive --format=tar.gz --prefix=MapRouletteFlow-${GITHUB_REF_NAME}/ -o dist/MapRouletteFlow-source.tar.gz HEAD
+          cd dist
+          sha256sum MapRouletteFlow.jar MapRouletteFlow-source.tar.gz > SHA256SUMS.txt
+      - name: Attest plugin
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/MapRouletteFlow.jar
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/MapRouletteFlow.jar
+          dist/MapRouletteFlow-source.tar.gz
+          dist/SHA256SUMS.txt
+          --generate-notes

@@ -1,4 +1,4 @@
-# MapRoulette Authentication
+# MapRoulette Flow Authentication
 
 ## Confirmed API-Key Format
 
@@ -44,7 +44,7 @@ authenticate.
 
 ## Setup UI
 
-`Preferences -> MapRoulette -> Server Settings` provides:
+`Preferences -> MapRoulette Flow -> Server Settings` provides:
 
 - MapRoulette API URL, defaulting to `https://maproulette.org/api/v2`.
 - Authentication mode: `Automatic from OSM preferences` or `Direct API key`.

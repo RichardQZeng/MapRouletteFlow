@@ -4,9 +4,43 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.openstreetmap.josm.plugins</groupId>
-    <artifactId>MapRouletteWeb</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <groupId>io.github.richardqzeng.josm.plugins</groupId>
+    <artifactId>MapRouletteFlow</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+
+    <name>MapRoulette Flow</name>
+    <description>Focused MapRoulette challenge workflows in JOSM</description>
+    <url>https://github.com/RichardQZeng/MapRouletteFlow</url>
+
+    <licenses>
+        <license>
+            <name>GNU General Public License v3.0 or later</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Richard Zeng</name>
+            <url>https://github.com/RichardQZeng</url>
+            <roles>
+                <role>maintainer</role>
+                <role>developer</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/RichardQZeng/MapRouletteFlow.git</connection>
+        <developerConnection>scm:git:git@github.com:RichardQZeng/MapRouletteFlow.git</developerConnection>
+        <url>https://github.com/RichardQZeng/MapRouletteFlow</url>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/RichardQZeng/MapRouletteFlow/issues</url>
+    </issueManagement>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -14,13 +48,15 @@
         <josm.version>1.5-SNAPSHOT</josm.version>
         <junit.version>5.12.2</junit.version>
         <junit.platform.version>1.12.2</junit.platform.version>
-        <plugin.main.version>19330</plugin.main.version>
-        <plugin.author>Taylor Smock; MapRouletteWeb contributors</plugin.author>
-        <plugin.class>org.openstreetmap.josm.plugins.maproulette.MapRoulette</plugin.class>
-        <plugin.description>Web-style MapRoulette task workflows in JOSM</plugin.description>
-        <plugin.icon>images/dialogs/user_no_image.png</plugin.icon>
-        <plugin.link>https://github.com/JOSM/MapRouletteWeb</plugin.link>
-        <plugin.canloadatruntime>true</plugin.canloadatruntime>
+        <plugin.main.version>19528</plugin.main.version>
+        <plugin.version>0</plugin.version>
+        <plugin.dist.dir>${project.build.directory}/dist</plugin.dist.dir>
+        <plugin.author>Richard Zeng</plugin.author>
+        <plugin.class>io.github.richardqzeng.josm.maprouletteflow.MapRouletteFlowPlugin</plugin.class>
+        <plugin.description>Focused, web-style MapRoulette challenge workflows in JOSM</plugin.description>
+        <plugin.icon>images/maprouletteflow/plugin.svg</plugin.icon>
+        <plugin.link>https://github.com/RichardQZeng/MapRouletteFlow</plugin.link>
+        <plugin.canloadatruntime>false</plugin.canloadatruntime>
     </properties>
 
     <repositories>
@@ -102,7 +138,22 @@
     </dependencies>
 
     <build>
+        <finalName>MapRouletteFlow</finalName>
         <testSourceDirectory>${project.basedir}/src/test/unit</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>${project.basedir}/src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}</directory>
+                <targetPath>META-INF/maprouletteflow</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>AUTHORS.md</include>
+                    <include>THIRD_PARTY_NOTICES.md</include>
+                </includes>
+            </resource>
+        </resources>
         <testResources>
             <testResource>
                 <directory>${project.basedir}/src/test/resources</directory>
@@ -139,7 +190,7 @@
                     <archive>
                         <manifestEntries>
                             <Plugin-Mainversion>${plugin.main.version}</Plugin-Mainversion>
-                            <Plugin-Version>${project.version}</Plugin-Version>
+                            <Plugin-Version>${plugin.version}</Plugin-Version>
                             <Plugin-Class>${plugin.class}</Plugin-Class>
                             <Plugin-Description>${plugin.description}</Plugin-Description>
                             <Plugin-Minimum-Java-Version>${java.lang.version}</Plugin-Minimum-Java-Version>
@@ -163,6 +214,16 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.commonmark</pattern>
+                                    <shadedPattern>io.github.richardqzeng.josm.maprouletteflow.internal.commonmark</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>jakarta.annotation</pattern>
+                                    <shadedPattern>io.github.richardqzeng.josm.maprouletteflow.internal.annotation</shadedPattern>
+                                </relocation>
+                            </relocations>
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
@@ -174,6 +235,27 @@
                                     </excludes>
                                 </filter>
                             </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-plugin-distribution</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${plugin.dist.dir}"/>
+                                <copy file="${project.build.directory}/${project.build.finalName}.jar"
+                                      tofile="${plugin.dist.dir}/MapRouletteFlow.jar"/>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

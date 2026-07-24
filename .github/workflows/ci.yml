@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  maven:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Verify
+        run: mvn --batch-mode --no-transfer-progress clean verify spotless:check
+      - name: Audit plugin artifact
+        shell: bash
+        run: |
+          test -f target/dist/MapRouletteFlow.jar
+          manifest="$(unzip -p target/dist/MapRouletteFlow.jar META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n //g')"
+          grep -q '^Plugin-Class: io.github.richardqzeng.josm.maprouletteflow.MapRouletteFlowPlugin$' <<< "$manifest"
+          jar tf target/dist/MapRouletteFlow.jar > "$RUNNER_TEMP/maprouletteflow-entries.txt"
+          grep -qx 'images/maprouletteflow/plugin.svg' "$RUNNER_TEMP/maprouletteflow-entries.txt"
+          grep -qx 'images/dialogs/maprouletteflow/plugin.svg' "$RUNNER_TEMP/maprouletteflow-entries.txt"
+          if grep -q '^org/openstreetmap/josm/plugins/maproulette/' "$RUNNER_TEMP/maprouletteflow-entries.txt"; then
+            echo 'Official MapRoulette package found in MapRoulette Flow JAR' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MapRouletteFlow
+          path: target/dist/MapRouletteFlow.jar
+
+  josm-ant:
+    strategy:
+      matrix:
+        josm-revision: ['', 'r19528']
+    uses: JOSM/JOSMPluginAction/.github/workflows/ant.yml@v3
+    with:
+      josm-revision: ${{ matrix.josm-revision }}
+      java-version: 17
+      perform-revision-tagging: false
+    permissions:
+      checks: write
+      contents: read
