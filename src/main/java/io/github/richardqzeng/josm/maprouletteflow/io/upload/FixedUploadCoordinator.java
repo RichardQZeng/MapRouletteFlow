@@ -1,6 +1,8 @@
 // License: GPL. For details, see LICENSE file.
 package io.github.richardqzeng.josm.maprouletteflow.io.upload;
 
+import static org.openstreetmap.josm.tools.I18n.tr;
+
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.util.Collections;
@@ -9,6 +11,7 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
@@ -18,8 +21,10 @@ import org.openstreetmap.josm.data.osm.Changeset;
 import org.openstreetmap.josm.data.osm.ChangesetCache;
 import org.openstreetmap.josm.data.osm.ChangesetCacheListener;
 import org.openstreetmap.josm.gui.MainApplication;
+import org.openstreetmap.josm.gui.Notification;
 import org.openstreetmap.josm.gui.io.UploadDialog;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
+import org.openstreetmap.josm.tools.Logging;
 import io.github.richardqzeng.josm.maprouletteflow.util.ExceptionDialogUtil;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionDraft;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionResult;
@@ -45,6 +50,7 @@ public final class FixedUploadCoordinator implements ChangesetCacheListener {
     private final UploadLauncher uploadLauncher;
     private final ListenerRegistrar listenerRegistrar;
     private final Executor executor;
+    private final Consumer<String> warningHandler;
     private final Consumer<Exception> errorHandler;
     private OsmDataLayer layer;
     private volatile long taskId;
@@ -66,17 +72,19 @@ public final class FixedUploadCoordinator implements ChangesetCacheListener {
                         new io.github.richardqzeng.josm.maprouletteflow.workflow.ApiTaskCompletionGateway()),
                 FixedUploadCoordinator::launchUpload, FixedUploadCoordinator::registerListener,
                 command -> MainApplication.worker.execute(command),
+                message -> SwingUtilities.invokeLater(() -> showWarning(message)),
                 exception -> SwingUtilities.invokeLater(() -> ExceptionDialogUtil.explainException(exception)));
     }
 
     FixedUploadCoordinator(WorkflowController workflow, CompletionSubmissionController submissions,
             UploadLauncher uploadLauncher, ListenerRegistrar listenerRegistrar, Executor executor,
-            Consumer<Exception> errorHandler) {
+            Consumer<String> warningHandler, Consumer<Exception> errorHandler) {
         this.workflow = workflow;
         this.submissions = submissions;
         this.uploadLauncher = uploadLauncher;
         this.listenerRegistrar = listenerRegistrar;
         this.executor = executor;
+        this.warningHandler = warningHandler;
         this.errorHandler = errorHandler;
     }
 
@@ -142,9 +150,7 @@ public final class FixedUploadCoordinator implements ChangesetCacheListener {
         if (uploadPrimitives.equals(identitySet(data))) {
             metadataArmed = !metadataPrepared;
         } else {
-            cancel();
-            errorHandler.accept(new IllegalStateException(
-                    "Another OSM upload started; the MapRoulette Fixed draft was preserved"));
+            warnAndCancel(tr("Another OSM upload started; the MapRoulette Fixed draft was preserved"));
         }
         return true;
     }
@@ -192,9 +198,10 @@ public final class FixedUploadCoordinator implements ChangesetCacheListener {
                 && new APIDataSet(layer.getDataSet()).isEmpty();
         if (correlatedChangeset == null || !clean) {
             if (uploadStarted && (!clean || ++cleanWithoutCorrelationPolls >= 8)) {
-                fail(clean
-                        ? "OSM upload completed without the expected MapRoulette task tag"
-                        : "OSM upload did not complete; the Fixed draft was preserved");
+                warnAndCancel(clean
+                        ? tr("OSM upload completed without the expected MapRoulette task tag; "
+                                + "the Fixed draft was preserved")
+                        : tr("OSM upload did not complete; the Fixed draft was preserved"));
             }
             return;
         }
@@ -217,9 +224,14 @@ public final class FixedUploadCoordinator implements ChangesetCacheListener {
         }
     }
 
-    private void fail(String message) {
+    private void warnAndCancel(String message) {
         cancel();
-        errorHandler.accept(new IllegalStateException(message));
+        warningHandler.accept(message);
+    }
+
+    private static void showWarning(String message) {
+        Logging.warn(message);
+        new Notification(message).setIcon(JOptionPane.WARNING_MESSAGE).setDuration(Notification.TIME_LONG).show();
     }
 
     public void cleanup() {

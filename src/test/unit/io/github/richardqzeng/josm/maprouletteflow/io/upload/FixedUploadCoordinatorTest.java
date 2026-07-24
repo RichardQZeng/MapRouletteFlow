@@ -10,6 +10,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.SwingUtilities;
 
@@ -43,7 +44,9 @@ class FixedUploadCoordinatorTest {
     private final FakeGateway gateway = new FakeGateway();
     private final AtomicInteger uploadCleanup = new AtomicInteger();
     private final AtomicInteger listenerCleanup = new AtomicInteger();
+    private final AtomicInteger warnings = new AtomicInteger();
     private final AtomicInteger errors = new AtomicInteger();
+    private final AtomicReference<String> warningMessage = new AtomicReference<>();
     private FixedUploadCoordinator coordinator;
     private ChangesetCacheListener registeredListener;
     private Runnable canceled;
@@ -66,7 +69,10 @@ class FixedUploadCoordinatorTest {
                         registeredListener = null;
                         listenerCleanup.incrementAndGet();
                     };
-                }, Runnable::run, exception -> errors.incrementAndGet());
+                }, Runnable::run, message -> {
+                    warnings.incrementAndGet();
+                    warningMessage.set(message);
+                }, exception -> errors.incrementAndGet());
     }
 
     @AfterEach
@@ -131,7 +137,9 @@ class FixedUploadCoordinatorTest {
         assertEquals(State.COMPLETION_DRAFT, workflow.state());
         assertEquals(draft, workflow.snapshot().completionDraft());
         assertNull(registeredListener);
-        assertEquals(1, errors.get());
+        assertEquals(1, warnings.get());
+        assertTrue(warningMessage.get().contains("Fixed draft was preserved"));
+        assertEquals(0, errors.get());
         assertEquals(0, gateway.statusCalls);
     }
 
@@ -150,7 +158,8 @@ class FixedUploadCoordinatorTest {
         assertEquals(draft, workflow.snapshot().completionDraft());
         assertNull(registeredListener);
         assertNull(coordinator.consumeMetadataTaskId());
-        assertEquals(1, errors.get());
+        assertEquals(1, warnings.get());
+        assertEquals(0, errors.get());
     }
 
     @Test
@@ -167,7 +176,8 @@ class FixedUploadCoordinatorTest {
 
         assertEquals(State.COMPLETION_DRAFT, workflow.state());
         assertNull(registeredListener);
-        assertEquals(1, errors.get());
+        assertEquals(1, warnings.get());
+        assertEquals(0, errors.get());
     }
 
     private CompletionDraft enterFixedDraft() {
