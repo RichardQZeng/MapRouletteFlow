@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.text.NumberFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
@@ -28,7 +29,9 @@ class UserProgressStripTest {
 
         final var text = descendants(strip).filter(JLabel.class::isInstance).map(JLabel.class::cast)
                 .map(JLabel::getText).toList();
-        assertTrue(text.stream().anyMatch(value -> value.contains("16,065") && value.contains("3,377")));
+        final var numbers = NumberFormat.getIntegerInstance();
+        assertTrue(text.stream().anyMatch(value -> value.contains(numbers.format(16_065))
+                && value.contains(numbers.format(3_377))));
         assertTrue(text.stream().anyMatch(value -> value.contains("#440") && value.contains("not ranked")));
         assertTrue(strip.getToolTipText().contains("2"));
     }

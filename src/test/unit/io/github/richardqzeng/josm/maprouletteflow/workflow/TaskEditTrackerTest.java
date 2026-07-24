@@ -4,6 +4,7 @@ package io.github.richardqzeng.josm.maprouletteflow.workflow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -81,8 +82,10 @@ class TaskEditTrackerTest {
                 new ChangePropertyCommand(dataSet, List.of(reservoir), removedNodeTags),
                 new ChangePropertyCommand(dataSet, List.of(area), areaTags), new ChangeNodesCommand(area, areaNodes)));
 
+        final var numbers = NumberFormat.getIntegerInstance();
         assertEquals(
-                "Merged Indian Joe Tank (node 357,601,420) into Indian Joe Tank (area 46,185,044); "
+                "Merged Indian Joe Tank (node " + numbers.format(357_601_420)
+                        + ") into Indian Joe Tank (area " + numbers.format(46_185_044) + "); "
                         + "replaced `landuse=reservoir` with `water=reservoir`; transferred `ele=2790`.",
                 tracker.compose(context.task(), context.layer()));
     }

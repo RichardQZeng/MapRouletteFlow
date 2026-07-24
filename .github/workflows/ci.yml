@@ -39,19 +39,3 @@ jobs:
         with:
           name: MapRouletteFlow
           path: target/dist/MapRouletteFlow.jar
-
-  josm-ant:
-    strategy:
-      matrix:
-        josm-revision: ['', 'r19528']
-    uses: JOSM/JOSMPluginAction/.github/workflows/ant.yml@v3
-    with:
-      josm-revision: ${{ matrix.josm-revision }}
-      java-version: 17
-      perform-revision-tagging: false
-    permissions:
-      attestations: write
-      checks: write
-      contents: write
-      id-token: write
-      packages: write
