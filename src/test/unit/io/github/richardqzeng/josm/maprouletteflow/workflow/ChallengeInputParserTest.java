@@ -19,6 +19,16 @@ class ChallengeInputParserTest {
     }
 
     @Test
+    void extractsTaskIdsFromSupportedTaskUrls() {
+        final var selection = ChallengeInputParser
+                .parseSelection("https://www.maproulette.org/challenge/789/task/12?foo=bar#map").orElseThrow();
+
+        assertEquals(789, selection.challengeId());
+        assertEquals(12, selection.taskId());
+        assertEquals(42, ChallengeInputParser.parseTaskId(" 42 ").orElseThrow());
+    }
+
+    @Test
     void rejectsInvalidIdsHostsAndPaths() {
         assertTrue(ChallengeInputParser.parse(null).isEmpty());
         assertTrue(ChallengeInputParser.parse("0").isEmpty());
@@ -27,5 +37,9 @@ class ChallengeInputParserTest {
         assertTrue(ChallengeInputParser.parse("https://evilmaproulette.org/challenge/1").isEmpty());
         assertTrue(ChallengeInputParser.parse("https://maproulette.org/project/1").isEmpty());
         assertTrue(ChallengeInputParser.parse("ftp://maproulette.org/challenge/1").isEmpty());
+        assertTrue(ChallengeInputParser.parseSelection("https://maproulette.org/challenge/1/task").isEmpty());
+        assertTrue(ChallengeInputParser.parseSelection("https://maproulette.org/challenge/1/task/0").isEmpty());
+        assertTrue(ChallengeInputParser.parseTaskId("https://maproulette.org/challenge/1/task/2").isEmpty());
+        assertTrue(ChallengeInputParser.parseTaskId("-2").isEmpty());
     }
 }

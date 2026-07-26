@@ -39,6 +39,8 @@ public final class TaskReservationService {
     interface Api {
         @Nullable Task prioritizedTask(long challengeId, @Nullable Long proximityTaskId) throws IOException;
 
+        Task start(long taskId) throws IOException;
+
         void release(long taskId) throws IOException;
     }
 
@@ -50,6 +52,11 @@ public final class TaskReservationService {
             @Override
             public Task prioritizedTask(long challengeId, Long proximityTaskId) throws IOException {
                 return ChallengeAPI.prioritizedTask(challengeId, proximityTaskId);
+            }
+
+            @Override
+            public Task start(long taskId) throws IOException {
+                return TaskAPI.start(taskId);
             }
 
             @Override
@@ -85,6 +92,30 @@ public final class TaskReservationService {
             LongPredicate ignoredTask) throws IOException {
         return reserve(challengeId, mode, completedTaskId, ignoredTask,
                 () -> workflow.canRequestNextCandidate(challengeId, completedTaskId), workflow::submissionSucceeded);
+    }
+
+    /** Reserve one explicitly requested task without asking the server to choose a replacement candidate. */
+    public Result reserveSpecific(long challengeId, long taskId) throws IOException {
+        if (!workflow.canRequestCandidate()) {
+            throw new IllegalStateException("Pending MapRoulette work blocks task reservation");
+        }
+        workflow.requireCurrentOwnerAuthenticated();
+        final var task = api.start(taskId);
+        if (task.id() != taskId) {
+            api.release(task.id());
+            throw new IOException("MapRoulette returned a different task than requested");
+        }
+        if (task.parentId() != challengeId) {
+            api.release(task.id());
+            throw new IOException("The requested task belongs to a different challenge");
+        }
+        try {
+            workflow.reserveCandidate(task);
+        } catch (RuntimeException exception) {
+            api.release(task.id());
+            throw exception;
+        }
+        return new Result(Status.RESERVED, task);
     }
 
     private Result reserve(long challengeId, NextMode mode, @Nullable Long completedTaskId, LongPredicate ignoredTask,

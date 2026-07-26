@@ -7,8 +7,8 @@ task at a time:
 
 ```text
 Authenticate
--> Enter a challenge ID or URL
--> Reserve one Random or Nearby task
+-> Enter a challenge ID/URL or a specific task ID/task URL
+-> Reserve the requested task, or one Random or Nearby task
 -> Preview it
 -> Confirm Start & Download
 -> Edit in JOSM
@@ -23,7 +23,7 @@ Included:
 - Direct MapRoulette API-key authentication.
 - Automatic API-key retrieval from OSM user preferences.
 - Account validation and score display.
-- One active challenge entered by ID or URL.
+- One active challenge entered by ID or URL, with optional direct selection by task ID or task URL.
 - One server-reserved task preview at a time.
 - Random or Nearby next-task selection.
 - Explicit confirmation before editable OSM data is downloaded.
@@ -114,6 +114,9 @@ The challenge input belongs in the main MapRoulette panel, not Preferences:
 Challenge ID or URL:
 [____________________________________] [Load Challenge] [Clear]
 
+Task ID:
+[____________________________________] [Load Task]
+
 Challenge: <name>
 Next task: (o) Random  ( ) Nearby
 
@@ -122,11 +125,14 @@ Next task: (o) Random  ( ) Nearby
 [Start & Download] [Release]
 ```
 
-The input accepts a numeric challenge ID or a supported MapRoulette challenge
-URL. After a challenge loads successfully, its canonical numeric ID is
-remembered for that MapRoulette server and prefilled on the next startup. It is
-not loaded automatically because loading reserves a task. `Clear` forgets the
-saved input without releasing or unloading current work.
+The challenge input accepts a numeric challenge ID or a supported MapRoulette
+challenge or task URL. The task input accepts a numeric task ID or task URL. A
+direct task selection discovers and validates the task's parent challenge before
+locking it. After a selection loads successfully, the canonical challenge ID is
+remembered for that MapRoulette server and prefilled on the next startup. A
+one-time task ID is not remembered. The saved challenge is not loaded
+automatically because loading reserves a task. `Clear` forgets the saved input
+without releasing or unloading current work.
 
 There is no ten-task preview, `Load 10 More`, or multi-task fitting workflow.
 
@@ -160,6 +166,13 @@ refreshed every ten minutes. Editable OSM data is not downloaded until the user
 confirms `Start & Download`.
 
 `Release` cancels the preview and releases the reservation.
+
+For direct task selection, the plugin first retrieves `/task/{id}` without a
+lock, validates the optional challenge ID from the URL, and loads the parent
+challenge. It then calls `/task/{id}/start`, validates the returned task and
+parent IDs, and presents the result through the same reserved-preview workflow.
+Any lock acquired before validation or local acceptance fails is released. After
+completion, normal Random or Nearby selection continues within that challenge.
 
 ## Start and Download
 

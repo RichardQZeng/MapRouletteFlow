@@ -91,6 +91,60 @@ class TaskReservationServiceTest {
     }
 
     @Test
+    void reservesSpecificTaskWithoutRequestingPrioritizedCandidate() throws Exception {
+        final var requested = task(123, 10);
+        final var api = new FakeApi().withStartedTask(requested);
+
+        final var result = new TaskReservationService(workflow, api).reserveSpecific(10, 123);
+
+        assertSame(requested, result.task());
+        assertSame(requested, workflow.snapshot().reservedTask());
+        assertEquals(List.of("start:123"), api.operations);
+        assertEquals(0, api.candidates.size());
+    }
+
+    @Test
+    void specificTaskGuardPreventsStartWhenReservationExists() {
+        workflow.reserveCandidate(task(100, 10));
+        final var api = new FakeApi().withStartedTask(task(123, 10));
+
+        assertThrows(IllegalStateException.class,
+                () -> new TaskReservationService(workflow, api).reserveSpecific(10, 123));
+        assertEquals(List.of(), api.operations);
+    }
+
+    @Test
+    void releasesSpecificTaskReturnedFromWrongChallenge() {
+        final var api = new FakeApi().withStartedTask(task(123, 11));
+
+        assertThrows(java.io.IOException.class,
+                () -> new TaskReservationService(workflow, api).reserveSpecific(10, 123));
+        assertEquals(List.of("start:123", "release:123"), api.operations);
+        assertNull(workflow.snapshot().reservedTask());
+    }
+
+    @Test
+    void releasesUnexpectedTaskReturnedForSpecificRequest() {
+        final var api = new FakeApi().withStartedTask(task(124, 10));
+
+        assertThrows(java.io.IOException.class,
+                () -> new TaskReservationService(workflow, api).reserveSpecific(10, 123));
+        assertEquals(List.of("start:123", "release:124"), api.operations);
+        assertNull(workflow.snapshot().reservedTask());
+    }
+
+    @Test
+    void releasesSpecificTaskWhenWorkflowAcceptanceFails() {
+        final var api = new FakeApi().withStartedTask(task(123, 10))
+                .beforeStartReturns(() -> workflow.reserveCandidate(task(999, 10)));
+
+        assertThrows(IllegalStateException.class,
+                () -> new TaskReservationService(workflow, api).reserveSpecific(10, 123));
+        assertEquals(List.of("start:123", "release:123"), api.operations);
+        assertEquals(999, workflow.snapshot().reservedTask().id());
+    }
+
+    @Test
     void automaticNearbyReservationUsesCompletedTaskAndTransitionsDirectlyToPreview() throws Exception {
         final var completed = enterSubmittingCompletion();
         final var candidate = task(200, 10);
@@ -151,9 +205,22 @@ class TaskReservationServiceTest {
         private final List<Task> candidates = new ArrayList<>();
         private final List<Long> proximities = new ArrayList<>();
         private final List<String> operations = new ArrayList<>();
+        private Task startedTask;
+        private Runnable beforeStartReturns = () -> {
+        };
 
         FakeApi(Task... responses) {
             this.responses.addAll(List.of(responses));
+        }
+
+        FakeApi withStartedTask(Task task) {
+            startedTask = task;
+            return this;
+        }
+
+        FakeApi beforeStartReturns(Runnable action) {
+            beforeStartReturns = action;
+            return this;
         }
 
         @Override
@@ -165,6 +232,13 @@ class TaskReservationServiceTest {
                 candidates.add(task);
             }
             return task;
+        }
+
+        @Override
+        public Task start(long taskId) {
+            operations.add("start:" + taskId);
+            beforeStartReturns.run();
+            return startedTask == null ? task(taskId, 10) : startedTask;
         }
 
         @Override

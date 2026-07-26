@@ -134,7 +134,7 @@ Exit criteria:
 
 ## Milestone 3: Challenge Input and One-Task Reservation
 
-Goal: enter a challenge and show exactly one server-reserved candidate.
+Goal: enter a challenge or specific task and show exactly one server-reserved candidate.
 
 Primary files:
 
@@ -148,13 +148,17 @@ Primary files:
 Work:
 
 - Add challenge ID/URL input and Load Challenge action to the main panel.
-- Parse supported challenge URLs into a numeric challenge ID.
+- Add a Task ID input and Load Task action without making bare numeric challenge input ambiguous.
+- Parse supported challenge and task URLs into numeric challenge/task selections.
 - Consolidate overlapping challenge URL handlers into this workflow.
 - Remove batch-oriented challenge controls and assumptions.
 - Add one-candidate API methods using `limit=1`.
 - Use no proximity for Random and the completed task ID for Nearby.
 - Guard candidate calls because the backend releases the caller's existing locks
   and locks the returned task.
+- Retrieve direct tasks without locking, validate their parent challenge, then
+  start and validate the exact task behind the same workflow guards.
+- Release a direct-task lock if server validation or local workflow acceptance fails.
 - Render one reserved preview with challenge, status, priority, and geometry.
 - Center full geometry with location fallback.
 - Recalculate layer bounds when the preview changes.
@@ -165,8 +169,9 @@ Work:
 
 Tests:
 
-- Challenge ID and URL parsing.
+- Challenge/task ID and URL parsing.
 - Random and Nearby request construction.
+- Exact task get/start request construction and challenge validation.
 - Exactly one returned candidate.
 - Reservation, refresh, release, and shutdown cleanup.
 - Guard against replacing an active task or draft.
@@ -176,6 +181,7 @@ Tests:
 Exit criteria:
 
 - Loading a challenge produces one labeled reserved preview.
+- Loading a task ID or task URL produces that exact task's reserved preview.
 - No OSM data is downloaded before confirmation.
 - Release reliably clears local state and attempts server cleanup.
 

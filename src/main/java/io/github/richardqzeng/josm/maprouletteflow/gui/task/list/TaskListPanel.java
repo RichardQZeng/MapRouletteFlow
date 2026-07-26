@@ -73,7 +73,9 @@ public final class TaskListPanel extends ToggleDialog {
     private final TaskReservationService reservations = new TaskReservationService(workflow);
     private final TaskDownloadService taskDownloads = new TaskDownloadService(workflow);
     private final JosmTextField challengeInput = new JosmTextField();
+    private final JosmTextField taskInput = new JosmTextField();
     private final JButton loadChallenge = new JButton(tr("Load Challenge"));
+    private final JButton loadTask = new JButton(tr("Load Task"));
     private final JButton clearChallenge = new JButton(tr("Clear"));
     private final JLabel challengeName = new JLabel(tr("Challenge: None"));
     private final JLabel challengeDetails = new JLabel(" ");
@@ -114,6 +116,8 @@ public final class TaskListPanel extends ToggleDialog {
         nearbyMode.addActionListener(event -> setNextMode(NextMode.NEARBY));
         loadChallenge.addActionListener(event -> requestChallenge(challengeInput.getText()));
         challengeInput.addActionListener(event -> requestChallenge(challengeInput.getText()));
+        loadTask.addActionListener(event -> requestTaskInput(taskInput.getText()));
+        taskInput.addActionListener(event -> requestTaskInput(taskInput.getText()));
         clearChallenge.setToolTipText(tr("Forget the remembered challenge input"));
         clearChallenge.addActionListener(event -> clearRememberedChallenge());
         if (MapRouletteConfig.getInstance() != null) {
@@ -128,11 +132,16 @@ public final class TaskListPanel extends ToggleDialog {
         inputPanel.add(challengeInput, GBC.std().fill(GBC.HORIZONTAL));
         inputPanel.add(loadChallenge, GBC.std());
         inputPanel.add(clearChallenge, GBC.eol());
+        final var taskInputPanel = new JPanel(new GridBagLayout());
+        taskInputPanel.add(taskInput, GBC.std().fill(GBC.HORIZONTAL));
+        taskInputPanel.add(loadTask, GBC.eol());
 
         final var panel = new JPanel(new GridBagLayout());
         panel.add(userProgress, GBC.eol().fill(GBC.HORIZONTAL));
-        panel.add(new JLabel(tr("Challenge ID or URL:")), GBC.eol().anchor(GBC.LINE_START));
+        panel.add(new JLabel(tr("Challenge ID or MapRoulette URL:")), GBC.eol().anchor(GBC.LINE_START));
         panel.add(inputPanel, GBC.eol().fill(GBC.HORIZONTAL));
+        panel.add(new JLabel(tr("Task ID:")), GBC.eol().anchor(GBC.LINE_START));
+        panel.add(taskInputPanel, GBC.eol().fill(GBC.HORIZONTAL));
         panel.add(challengeName, GBC.eol().anchor(GBC.LINE_START).insets(0, 8, 0, 0));
         panel.add(challengeDetails, GBC.eol().anchor(GBC.LINE_START));
         panel.add(new JLabel(tr("Next task:")), GBC.std().anchor(GBC.LINE_START));
@@ -182,31 +191,49 @@ public final class TaskListPanel extends ToggleDialog {
         });
     }
 
+    /** Route an external MapRoulette task ID or URL through the same workflow as panel input. */
+    public static void loadTaskInput(String input) {
+        GuiHelper.runInEDT(() -> {
+            if (MainApplication.getMap() == null) {
+                return;
+            }
+            var panel = MainApplication.getMap().getToggleDialog(TaskListPanel.class);
+            if (panel == null) {
+                panel = new TaskListPanel();
+                MainApplication.getMap().addToggleDialog(panel);
+            }
+            panel.taskInput.setText(input);
+            panel.requestTaskInput(input);
+        });
+    }
+
     private void requestChallenge(String input) {
         if (!SwingUtilities.isEventDispatchThread()) {
             GuiHelper.runInEDT(() -> requestChallenge(input));
             return;
         }
-        warnAboutOfficialPlugin();
-        final var parsed = ChallengeInputParser.parse(input);
+        final var parsed = ChallengeInputParser.parseSelection(input);
         if (parsed.isEmpty()) {
             message.setText(tr("Enter a positive challenge ID or a supported maproulette.org challenge URL."));
             return;
         }
+        final var selection = parsed.orElseThrow();
+        if (selection.taskId() != null) {
+            taskInput.setText(Long.toString(selection.taskId()));
+            requestSpecificTask(selection.taskId(), selection.challengeId());
+            return;
+        }
+        requestChallenge(selection.challengeId());
+    }
+
+    private void requestChallenge(long challengeId) {
+        warnAboutOfficialPlugin();
         if (!workflow.canSelectChallenge()) {
             message.setText(tr("Release or complete the current MapRoulette task before loading another challenge."));
             return;
         }
-        final var challengeId = parsed.getAsLong();
-        if (IgnoreList.isChallengeIgnored(challengeId)) {
-            final var choice = JOptionPane.showConfirmDialog(MainApplication.getMainFrame(),
-                    tr("Challenge {0} is excluded. Remove it from Exclusions and continue?", challengeId),
-                    tr("Excluded MapRoulette challenge"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-            if (choice != JOptionPane.YES_OPTION) {
-                message.setText(tr("Challenge {0} remains excluded; no task was requested.", challengeId));
-                return;
-            }
-            IgnoreList.unignoreChallenge(challengeId);
+        if (!allowExcludedChallenge(challengeId)) {
+            return;
         }
 
         loading = true;
@@ -214,6 +241,65 @@ public final class TaskListPanel extends ToggleDialog {
         message.setText(tr("Loading challenge {0}...", challengeId));
         updateEnabledState();
         MainApplication.worker.execute(() -> loadAndReserve(challengeId, generation));
+    }
+
+    private void requestTaskInput(String input) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            GuiHelper.runInEDT(() -> requestTaskInput(input));
+            return;
+        }
+        final var taskId = ChallengeInputParser.parseTaskId(input);
+        if (taskId.isPresent()) {
+            requestSpecificTask(taskId.getAsLong(), null);
+            return;
+        }
+        final var parsed = ChallengeInputParser.parseSelection(input);
+        if (parsed.isPresent() && parsed.orElseThrow().taskId() != null) {
+            final var selection = parsed.orElseThrow();
+            challengeInput.setText(Long.toString(selection.challengeId()));
+            taskInput.setText(Long.toString(selection.taskId()));
+            requestSpecificTask(selection.taskId(), selection.challengeId());
+            return;
+        }
+        message.setText(tr("Enter a positive task ID or a supported maproulette.org task URL."));
+    }
+
+    private void requestSpecificTask(long taskId, Long challengeHint) {
+        warnAboutOfficialPlugin();
+        if (!workflow.canSelectChallenge()) {
+            message.setText(tr("Release or complete the current MapRoulette task before loading another task."));
+            return;
+        }
+        if (IgnoreList.isTaskIgnored(taskId)) {
+            final var choice = JOptionPane.showConfirmDialog(MainApplication.getMainFrame(),
+                    tr("Task {0} is excluded. Remove it from Exclusions and continue?", taskId),
+                    tr("Excluded MapRoulette task"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (choice != JOptionPane.YES_OPTION) {
+                message.setText(tr("Task {0} remains excluded; it was not reserved.", taskId));
+                return;
+            }
+            IgnoreList.unignoreTask(taskId);
+        }
+        loading = true;
+        final var generation = ++requestGeneration;
+        message.setText(tr("Loading task {0}...", taskId));
+        updateEnabledState();
+        MainApplication.worker.execute(() -> loadSpecificTask(taskId, challengeHint, generation));
+    }
+
+    private boolean allowExcludedChallenge(long challengeId) {
+        if (!IgnoreList.isChallengeIgnored(challengeId)) {
+            return true;
+        }
+        final var choice = JOptionPane.showConfirmDialog(MainApplication.getMainFrame(),
+                tr("Challenge {0} is excluded. Remove it from Exclusions and continue?", challengeId),
+                tr("Excluded MapRoulette challenge"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) {
+            message.setText(tr("Challenge {0} remains excluded; no task was requested.", challengeId));
+            return false;
+        }
+        IgnoreList.unignoreChallenge(challengeId);
+        return true;
     }
 
     private void warnAboutOfficialPlugin() {
@@ -234,18 +320,68 @@ public final class TaskListPanel extends ToggleDialog {
             final var snapshot = workflow.snapshot();
             final var result = reservations.reserve(challengeId, snapshot.nextMode(), snapshot.completedTaskId(),
                     IgnoreList::isTaskIgnored);
-            GuiHelper.runInEDT(() -> finishReservation(challenge, result, generation));
+            GuiHelper.runInEDT(() -> finishReservation(challenge, result, generation, null));
         } catch (Exception exception) {
             GuiHelper.runInEDT(() -> finishFailure(exception, generation));
         }
     }
 
-    private void finishReservation(Challenge challenge, TaskReservationService.Result result, long generation) {
+    private void loadSpecificTask(long taskId, Long challengeHint, long generation) {
+        try {
+            final var task = TaskAPI.get(taskId);
+            if (task.id() != taskId) {
+                throw new IOException("MapRoulette returned a different task than requested");
+            }
+            if (challengeHint != null && task.parentId() != challengeHint) {
+                throw new IOException("The task does not belong to the challenge in the supplied URL");
+            }
+            final var challenge = ChallengeAPI.challenge(task.parentId());
+            GuiHelper.runInEDT(() -> reserveSpecificTask(task, challenge, generation));
+        } catch (Exception exception) {
+            GuiHelper.runInEDT(() -> finishFailure(exception, generation));
+        }
+    }
+
+    private void reserveSpecificTask(Task task, Challenge challenge, long generation) {
+        if (destroyed || generation != requestGeneration) {
+            return;
+        }
+        if (!workflow.canSelectChallenge()) {
+            loading = false;
+            message.setText(tr("Pending MapRoulette work prevented task {0} from being reserved.", task.id()));
+            updateEnabledState();
+            return;
+        }
+        if (!allowExcludedChallenge(challenge.id())) {
+            loading = false;
+            updateEnabledState();
+            return;
+        }
+        try {
+            workflow.selectChallenge(challenge);
+            workflow.setNextMode(MapRouletteTaskPreference.getNextMode(challenge.id()));
+            message.setText(tr("Reserving task {0}...", task.id()));
+            MainApplication.worker.execute(() -> {
+                try {
+                    final var result = reservations.reserveSpecific(challenge.id(), task.id());
+                    GuiHelper.runInEDT(() -> finishReservation(challenge, result, generation, task.id()));
+                } catch (Exception exception) {
+                    GuiHelper.runInEDT(() -> finishFailure(exception, generation));
+                }
+            });
+        } catch (RuntimeException exception) {
+            finishFailure(exception, generation);
+        }
+    }
+
+    private void finishReservation(Challenge challenge, TaskReservationService.Result result, long generation,
+            Long requestedTaskId) {
         if (destroyed || generation != requestGeneration) {
             return;
         }
         loading = false;
         challengeInput.setText(Long.toString(challenge.id()));
+        taskInput.setText(requestedTaskId == null ? "" : Long.toString(requestedTaskId));
         RecentChallengePreference.remember(MapRouletteConfig.getBaseUrl(), challenge.id());
         updateChallenge(challenge);
         switch (result.status()) {
@@ -542,6 +678,7 @@ public final class TaskListPanel extends ToggleDialog {
 
     private void clearRememberedChallenge() {
         challengeInput.setText("");
+        taskInput.setText("");
         if (MapRouletteConfig.getInstance() != null) {
             RecentChallengePreference.clear(MapRouletteConfig.getBaseUrl());
         }
@@ -723,6 +860,8 @@ public final class TaskListPanel extends ToggleDialog {
         final var snapshot = workflow.snapshot();
         final var authenticated = !snapshot.suspended() && isWorkflowAuthenticated();
         loadChallenge.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE
+                && workflow.canSelectChallenge());
+        loadTask.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE
                 && workflow.canSelectChallenge());
         clearChallenge.setEnabled(!loading);
         randomMode.setEnabled(authenticated && !loading && snapshot.state() == State.CHALLENGE_IDLE);

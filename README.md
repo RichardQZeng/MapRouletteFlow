@@ -7,8 +7,8 @@ MapRoulette Flow began as a fork of the original [JOSM MapRoulette plugin](https
 ## Workflow
 
 ```text
-Load challenge by ID or URL
--> Preview one prioritized task
+Load challenge by ID/URL, or select a task by ID/task URL
+-> Preview the selected or prioritized task
 -> Explicitly start and lock the task
 -> Download editable OSM data
 -> Edit and choose a completion result
@@ -37,7 +37,7 @@ Requirements:
 
 MapRoulette Flow has its own Java package, plugin identity, preferences, shortcuts, caches, resources, and recovery state. It can be installed and enabled alongside the official MapRoulette plugin.
 
-Only one MapRoulette task workflow should be active at a time. Both plugins use the same MapRoulette account and JOSM upload lifecycle, so operating active tasks in both simultaneously is not supported in the initial release. MapRoulette Flow does not claim global `maproulette.org` Open Location URLs; paste a challenge ID or URL into its panel instead.
+Only one MapRoulette task workflow should be active at a time. Both plugins use the same MapRoulette account and JOSM upload lifecycle, so operating active tasks in both simultaneously is not supported in the initial release. MapRoulette Flow does not claim global `maproulette.org` Open Location URLs; paste a challenge ID, task ID, or URL into its panel instead.
 
 MapRoulette protocol values remain shared intentionally, including the default remote OSM preference `maproulette_apikey_v2` and standard `maproulette:*` changeset tags.
 
