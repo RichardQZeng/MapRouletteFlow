@@ -17,6 +17,7 @@ import org.openstreetmap.josm.gui.layer.OsmDataLayer;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Challenge;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Task;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.AuthenticatedUser;
+import io.github.richardqzeng.josm.maprouletteflow.api.UnauthorizedException;
 import io.github.richardqzeng.josm.maprouletteflow.gui.preferences.MapRouletteTaskPreference.NextMode;
 import io.github.richardqzeng.josm.maprouletteflow.util.AuthenticationManager;
 import org.openstreetmap.josm.tools.Logging;
@@ -175,9 +176,9 @@ public final class WorkflowController {
         return isOwnedBy(baseUrl, user);
     }
 
-    public void requireCurrentOwnerAuthenticated() {
+    public void requireCurrentOwnerAuthenticated() throws UnauthorizedException {
         if (snapshot().accountOwner() != null && !isCurrentOwnerAuthenticated()) {
-            throw new IllegalStateException("The MapRoulette account that owns this task is not authenticated");
+            throw new UnauthorizedException("The MapRoulette account that owns this task is not authenticated");
         }
     }
 

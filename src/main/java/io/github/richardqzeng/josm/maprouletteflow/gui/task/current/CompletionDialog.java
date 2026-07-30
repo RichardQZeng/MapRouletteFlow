@@ -47,6 +47,7 @@ import javax.swing.text.html.HTMLDocument;
 import javax.swing.text.html.Option;
 
 import org.openstreetmap.josm.gui.MainApplication;
+import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.gui.tagging.ac.AutoCompComboBox;
 import org.openstreetmap.josm.gui.widgets.HtmlPanel;
 import org.openstreetmap.josm.gui.widgets.JosmTextArea;
@@ -57,6 +58,7 @@ import io.github.richardqzeng.josm.maprouletteflow.gui.preferences.MapRouletteTa
 import io.github.richardqzeng.josm.maprouletteflow.gui.preferences.MapRouletteTaskPreference.NextMode;
 import io.github.richardqzeng.josm.maprouletteflow.io.upload.FixedUploadCoordinator;
 import io.github.richardqzeng.josm.maprouletteflow.util.ExceptionDialogUtil;
+import io.github.richardqzeng.josm.maprouletteflow.util.AuthenticationManager;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionDraft;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionDraftValidator;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionResult;
@@ -85,6 +87,7 @@ final class CompletionDialog extends JDialog {
     private final JPanel instructionsContainer = new JPanel(new BorderLayout());
     private final JButton cancel = new JButton(tr("Cancel"));
     private final JButton submit = new JButton(tr("Submit"));
+    private final Runnable authenticationListener = () -> GuiHelper.runInEDT(this::updateSubmitEnabledState);
     private final String generatedCommentAtOpen;
     private boolean busy;
 
@@ -179,16 +182,22 @@ final class CompletionDialog extends JDialog {
         getRootPane().registerKeyboardAction(event -> close(false), KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane().registerKeyboardAction(event -> {
-            if (!busy) {
+            if (submit.isEnabled()) {
                 submit();
             }
         }, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
+        AuthenticationManager.addAuthenticationListener(authenticationListener);
+        updateSubmitEnabledState();
         packWithinLimit();
         setLocationRelativeTo(owner);
     }
 
     private void submit() {
+        if (!workflow.isCurrentOwnerAuthenticated()) {
+            updateSubmitEnabledState();
+            return;
+        }
         var draft = draft();
         final var required = responseNames((HTMLDocument) instructions.getEditorPane().getDocument());
         final var errors = CompletionDraftValidator.validate(draft, challenge, required);
@@ -284,7 +293,11 @@ final class CompletionDialog extends JDialog {
         busy = value;
         setEnabledRecursively(getContentPane(), !value);
         cancel.setEnabled(!value);
-        submit.setEnabled(!value);
+        updateSubmitEnabledState();
+    }
+
+    private void updateSubmitEnabledState() {
+        submit.setEnabled(!busy && workflow.isCurrentOwnerAuthenticated());
     }
 
     private static void setEnabledRecursively(Container parent, boolean enabled) {
@@ -301,6 +314,12 @@ final class CompletionDialog extends JDialog {
             dispose();
             closed.accept(completed);
         }
+    }
+
+    @Override
+    public void dispose() {
+        AuthenticationManager.removeAuthenticationListener(authenticationListener);
+        super.dispose();
     }
 
     private void packWithinLimit() {

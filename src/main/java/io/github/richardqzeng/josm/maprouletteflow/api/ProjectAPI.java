@@ -2,6 +2,7 @@
 package io.github.richardqzeng.josm.maprouletteflow.api;
 
 import static io.github.richardqzeng.josm.maprouletteflow.config.MapRouletteConfig.getBaseUrl;
+import static java.net.HttpURLConnection.HTTP_OK;
 
 import java.io.IOException;
 
@@ -33,9 +34,13 @@ public final class ProjectAPI {
      */
     @Nonnull
     public static Project get(long id) throws IOException {
-        final var client = HttpClientUtils.get(getBaseUrl() + PROJECT + "/" + id);
-        try (var inputstream = client.connect().getContent()) {
-            return ProjectParser.parse(inputstream);
+        final var baseUrl = getBaseUrl();
+        final var client = HttpClientUtils.get(baseUrl + PROJECT + "/" + id);
+        try {
+            final var response = HttpClientUtils.connectExpecting(client, baseUrl, HTTP_OK, "project request");
+            try (var inputstream = response.getContent()) {
+                return ProjectParser.parse(inputstream);
+            }
         } finally {
             client.disconnect();
         }

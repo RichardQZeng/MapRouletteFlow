@@ -1,6 +1,9 @@
 // License: GPL. For details, see LICENSE file.
 package io.github.richardqzeng.josm.maprouletteflow.util;
 
+import static java.net.HttpURLConnection.HTTP_UNAUTHORIZED;
+
+import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URLEncoder;
@@ -23,6 +26,26 @@ public final class HttpClientUtils {
      */
     private HttpClientUtils() {
         // Hide the constructor
+    }
+
+    /** Connect an authenticated request and enforce its exact successful response status. */
+    public static HttpClient.Response connectExpecting(HttpClient client, String baseUrl, int expectedStatus,
+            String operation) throws IOException {
+        client.setAccept("application/json");
+        final var response = client.connect();
+        final var actualStatus = response.getResponseCode();
+        if (actualStatus == HTTP_UNAUTHORIZED) {
+            final var rejectedKey = client.getRequestHeader("apiKey");
+            if (rejectedKey != null) {
+                AuthenticationManager.handleUnauthorized(baseUrl, rejectedKey);
+            }
+            throw new UnauthorizedException("MapRoulette rejected the API key");
+        }
+        if (actualStatus != expectedStatus) {
+            throw new IOException("MapRoulette " + operation + " returned HTTP " + actualStatus + "; expected "
+                    + expectedStatus);
+        }
+        return response;
     }
 
     /**

@@ -2,6 +2,8 @@
 package io.github.richardqzeng.josm.maprouletteflow.api;
 
 import static io.github.richardqzeng.josm.maprouletteflow.config.MapRouletteConfig.getBaseUrl;
+import static java.net.HttpURLConnection.HTTP_OK;
+
 import java.io.IOException;
 
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Task;
@@ -31,12 +33,8 @@ public final class TaskAPI {
      * @throws IOException if there was a problem communicating with the server
      */
     public static Task get(long task) throws IOException {
-        final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + task);
-        try (var inputstream = client.connect().getContent()) {
-            return (Task) TaskParser.parseTask(inputstream);
-        } finally {
-            client.disconnect();
-        }
+        final var baseUrl = getBaseUrl();
+        return parseTask(HttpClientUtils.get(baseUrl + TASK + "/" + task), baseUrl);
     }
 
     /**
@@ -48,19 +46,22 @@ public final class TaskAPI {
      * @throws UnauthorizedException If we aren't authorized for the server
      */
     public static Task start(long task) throws IOException {
-        final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + task + "/start");
-        return parseTask(client);
+        final var baseUrl = getBaseUrl();
+        return parseTask(HttpClientUtils.get(baseUrl + TASK + "/" + task + "/start"), baseUrl);
     }
 
     /** Start a task using a credential already validated for the supplied server. */
     public static Task start(long task, String baseUrl, String apiKey) throws IOException {
         final var client = HttpClientUtils.getWithApiKey(baseUrl + TASK + "/" + task + "/start", apiKey);
-        return parseTask(client);
+        return parseTask(client, baseUrl);
     }
 
-    private static Task parseTask(org.openstreetmap.josm.tools.HttpClient client) throws IOException {
-        try (var inputstream = client.connect().getContent()) {
-            return (Task) TaskParser.parseTask(inputstream);
+    private static Task parseTask(org.openstreetmap.josm.tools.HttpClient client, String baseUrl) throws IOException {
+        try {
+            final var response = HttpClientUtils.connectExpecting(client, baseUrl, HTTP_OK, "task request");
+            try (var inputstream = response.getContent()) {
+                return (Task) TaskParser.parseTask(inputstream);
+            }
         } finally {
             client.disconnect();
         }
@@ -74,14 +75,14 @@ public final class TaskAPI {
      * @throws IOException if there was a problem communicating with the server
      */
     public static Task release(long task) throws IOException {
-        final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + task + "/release");
-        return parseTask(client);
+        final var baseUrl = getBaseUrl();
+        return parseTask(HttpClientUtils.get(baseUrl + TASK + "/" + task + "/release"), baseUrl);
     }
 
     /** Release a task using the same validated credential that acquired its recovery lock. */
     public static Task release(long task, String baseUrl, String apiKey) throws IOException {
         final var client = HttpClientUtils.getWithApiKey(baseUrl + TASK + "/" + task + "/release", apiKey);
-        return parseTask(client);
+        return parseTask(client, baseUrl);
     }
 
     /**
@@ -92,12 +93,8 @@ public final class TaskAPI {
      * @throws IOException if there was a problem communicating with the server
      */
     public static Task refreshLock(long task) throws IOException {
-        final var client = HttpClientUtils.get(getBaseUrl() + TASK + "/" + task + "/refreshLock");
-        try (var inputstream = client.connect().getContent()) {
-            return (Task) TaskParser.parseTask(inputstream);
-        } finally {
-            client.disconnect();
-        }
+        final var baseUrl = getBaseUrl();
+        return parseTask(HttpClientUtils.get(baseUrl + TASK + "/" + task + "/refreshLock"), baseUrl);
     }
 
 }

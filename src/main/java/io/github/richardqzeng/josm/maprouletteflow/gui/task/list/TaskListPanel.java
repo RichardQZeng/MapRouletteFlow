@@ -227,6 +227,11 @@ public final class TaskListPanel extends ToggleDialog {
     }
 
     private void requestChallenge(long challengeId) {
+        if (!isWorkflowAuthenticated()) {
+            message.setText(tr("Authenticate with MapRoulette before loading a challenge."));
+            updateEnabledState();
+            return;
+        }
         warnAboutOfficialPlugin();
         if (!workflow.canSelectChallenge()) {
             message.setText(tr("Release or complete the current MapRoulette task before loading another challenge."));
@@ -265,6 +270,11 @@ public final class TaskListPanel extends ToggleDialog {
     }
 
     private void requestSpecificTask(long taskId, Long challengeHint) {
+        if (!isWorkflowAuthenticated()) {
+            message.setText(tr("Authenticate with MapRoulette before loading a task."));
+            updateEnabledState();
+            return;
+        }
         warnAboutOfficialPlugin();
         if (!workflow.canSelectChallenge()) {
             message.setText(tr("Release or complete the current MapRoulette task before loading another task."));
@@ -769,6 +779,7 @@ public final class TaskListPanel extends ToggleDialog {
             ++progressGeneration;
             progressIdentity = null;
             userProgress.reset();
+            message.setText(tr("Authenticate with MapRoulette to continue."));
         } else {
             final var identity = new ProgressIdentity(baseUrl, account.id(), account.osmId());
             if (!identity.equals(progressIdentity)) {
@@ -780,6 +791,7 @@ public final class TaskListPanel extends ToggleDialog {
                 }
             }
         }
+        currentTaskPanel.refreshModel(workflow.snapshot().activeTask());
         updateEnabledState();
     }
 

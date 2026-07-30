@@ -26,6 +26,12 @@ Authenticate
 
 This is a complementary workflow rather than a replacement for the official plugin. It emphasizes one visible unit of work, explicit confirmation points, recoverable failures, and consistency between MapRoulette task state and JOSM upload state.
 
+## Demo
+
+![MapRoulette Flow task reservation and preview workflow](docs/images/maproulette-flow.gif)
+
+*Bing aerial imagery copyright Microsoft and its imagery providers. Use is subject to the [Bing Maps terms of use](https://www.microsoft.com/en-us/maps/product/terms-april-2011); the imagery is proprietary and excluded from this project's GPL license.*
+
 ## Divergence from Upstream
 
 MapRoulette Flow has its own Java package, plugin identity, entry point, preferences, shortcuts, caches, resources, workflow state, build, and release process. It can be installed alongside the official plugin.
@@ -80,7 +86,7 @@ MapRoulette Flow treats remote task state, local edits, and OSM uploads as one c
 - **Credential handling:** API keys are never placed in URLs, remain session-only by default, are scoped to the server and account, and are excluded from recovery snapshots and logs.
 - **Recovery:** cancellation, temporary failures, upload interruption, and restart preserve enough non-secret context for safe retry or release.
 
-The current automated suite contains 169 tests across 43 test classes. It covers workflow transitions, reservation and release, authentication, API contracts, parsing, geometry and download bounds, Swing-thread ownership, upload correlation, completion commit semantics, retries, cooperative changes, and restart recovery. CI runs the Maven verification and formatting checks and audits the packaged plugin identity and resources.
+The current automated suite contains 177 tests across 45 test classes. It covers workflow transitions, reservation and release, authentication, API contracts, parsing, geometry and download bounds, Swing-thread ownership, upload correlation, completion commit semantics, retries, cooperative changes, and restart recovery. CI runs the Maven verification and formatting checks and audits the packaged plugin identity and resources.
 
 ## Project Status
 

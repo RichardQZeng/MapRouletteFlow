@@ -18,7 +18,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
+import org.openstreetmap.josm.gui.util.GuiHelper;
+import org.openstreetmap.josm.gui.widgets.JosmTextField;
 import io.github.richardqzeng.josm.maprouletteflow.api.enums.TaskStatus;
+import io.github.richardqzeng.josm.maprouletteflow.api.model.AuthenticatedUser;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Challenge;
 import io.github.richardqzeng.josm.maprouletteflow.api.model.Task;
 import io.github.richardqzeng.josm.maprouletteflow.gui.task.list.TaskListPanel;
@@ -26,18 +29,23 @@ import io.github.richardqzeng.josm.maprouletteflow.workflow.WorkflowController;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionDraft;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.CompletionResult;
 import io.github.richardqzeng.josm.maprouletteflow.workflow.TaskReservationService;
+import io.github.richardqzeng.josm.maprouletteflow.util.AuthenticationManager;
+import io.github.richardqzeng.josm.maprouletteflow.util.AuthenticationMode;
+import io.github.richardqzeng.josm.maprouletteflow.util.MapRouletteConfig;
 import io.github.richardqzeng.josm.maprouletteflow.gui.preferences.MapRouletteTaskPreference.NextMode;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.testutils.annotations.Main;
 
 @BasicPreferences
 @Main
+@MapRouletteConfig
 class TaskListPanelTest {
     private final WorkflowController workflow = WorkflowController.getInstance();
 
     @AfterEach
     void tearDown() {
         workflow.shutdown();
+        AuthenticationManager.clearActiveAuthentication();
     }
 
     @Test
@@ -65,6 +73,67 @@ class TaskListPanelTest {
             assertTrue(buttonTexts.indexOf("Instructions...") > buttonTexts.indexOf("Select Primitives"));
             assertFalse(buttonTexts.stream().anyMatch(text -> text != null && text.contains("10")));
             assertTrue(descendants(panel).noneMatch(JTable.class::isInstance));
+        } finally {
+            panel.destroy();
+        }
+    }
+
+    @Test
+    void taskInputEnterDoesNotBypassAuthentication() {
+        workflow.connect();
+        AuthenticationManager.clearActiveAuthentication();
+
+        final var authenticationMessageShown = GuiHelper.runInEDTAndWaitAndReturn(() -> {
+            final var panel = new TaskListPanel();
+            try {
+                final var inputs = descendants(panel).filter(JosmTextField.class::isInstance)
+                        .map(JosmTextField.class::cast).toList();
+                assertEquals(2, inputs.size());
+                inputs.get(1).setText("https://maproulette.org/challenge/50561/task/266672848");
+                inputs.get(1).postActionEvent();
+                return descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                        .map(JLabel::getText).anyMatch(text -> text != null && text.contains("Authenticate"));
+            } finally {
+                panel.destroy();
+            }
+        });
+
+        assertTrue(authenticationMessageShown);
+        assertEquals(WorkflowController.State.CHALLENGE_IDLE, workflow.state());
+    }
+
+    @Test
+    void authenticationLossDisablesServerActionsWithoutClearingTheActiveTask() {
+        final var baseUrl = io.github.richardqzeng.josm.maprouletteflow.config.MapRouletteConfig.getBaseUrl();
+        final var apiKey = "42|00000000-0000-0000-0000-000000000042";
+        final var account = new AuthenticatedUser(42, 24, "user", 0);
+        AuthenticationManager.setMode(baseUrl, AuthenticationMode.DIRECT);
+        AuthenticationManager.setDirectApiKey(baseUrl, apiKey, false);
+        AuthenticationManager.setAuthenticated(baseUrl, AuthenticationMode.DIRECT, apiKey, account);
+        workflow.authenticatedAs(baseUrl, account);
+        workflow.selectChallenge(new Challenge(10, "challenge", null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null));
+        final var task = task(100);
+        workflow.reserveCandidate(task);
+        workflow.beginDownload(null);
+        workflow.activateTask(task, new OsmDataLayer(new DataSet(), "test", null));
+        final var panel = new TaskListPanel();
+        try {
+            final var fixed = button(panel, "I fixed it!");
+            final var release = button(panel, "Release");
+            assertTrue(fixed.isEnabled());
+            assertTrue(release.isEnabled());
+
+            GuiHelper.runInEDTAndWaitAndReturn(() -> {
+                AuthenticationManager.clearActiveAuthentication();
+                return null;
+            });
+
+            assertFalse(fixed.isEnabled());
+            assertFalse(release.isEnabled());
+            assertEquals(task, panel.getSelected().iterator().next());
+            assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                    .map(JLabel::getText).anyMatch(text -> text != null && text.contains("Authenticate")));
         } finally {
             panel.destroy();
         }
@@ -171,6 +240,11 @@ class TaskListPanelTest {
                 .flatMap(component -> component instanceof Container child
                         ? Stream.concat(Stream.of(component), descendants(child))
                         : Stream.of(component));
+    }
+
+    private static AbstractButton button(Container container, String text) {
+        return descendants(container).filter(AbstractButton.class::isInstance).map(AbstractButton.class::cast)
+                .filter(button -> text.equals(button.getText())).findFirst().orElseThrow();
     }
 
     private static boolean isVisibleWithin(Component component, Container root) {

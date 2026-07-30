@@ -2,7 +2,6 @@
 package io.github.richardqzeng.josm.maprouletteflow.api;
 
 import static java.net.HttpURLConnection.HTTP_OK;
-import static java.net.HttpURLConnection.HTTP_UNAUTHORIZED;
 
 import java.io.IOException;
 import java.util.Map;
@@ -15,7 +14,6 @@ import io.github.richardqzeng.josm.maprouletteflow.api.parsers.LeaderboardEntryP
 import io.github.richardqzeng.josm.maprouletteflow.api.parsers.UserMetricsParser;
 import io.github.richardqzeng.josm.maprouletteflow.util.AuthenticationManager;
 import io.github.richardqzeng.josm.maprouletteflow.util.HttpClientUtils;
-import org.openstreetmap.josm.tools.HttpClient;
 
 /** Retrieves the compact progress data displayed by the task panel. */
 public final class UserProgressAPI {
@@ -42,7 +40,7 @@ public final class UserProgressAPI {
                         "end", "", "reviewStart", "", "reviewEnd", "", "reviewerStart", "", "reviewerEnd", ""),
                 apiKey);
         try {
-            final var response = connect(client, baseUrl, apiKey, "user metrics");
+            final var response = HttpClientUtils.connectExpecting(client, baseUrl, HTTP_OK, "user metrics request");
             try (var input = response.getContent()) {
                 return UserMetricsParser.parseCompletedTasks(input);
             }
@@ -57,28 +55,13 @@ public final class UserProgressAPI {
                 Map.of("bracket", "0", "monthDuration", Integer.toString(monthDuration), "onlyEnabled", "true"),
                 apiKey);
         try {
-            final var response = connect(client, baseUrl, apiKey, "leaderboard");
+            final var response = HttpClientUtils.connectExpecting(client, baseUrl, HTTP_OK, "leaderboard request");
             try (var input = response.getContent()) {
                 return LeaderboardEntryParser.parse(input);
             }
         } finally {
             client.disconnect();
         }
-    }
-
-    private static HttpClient.Response connect(HttpClient client, String baseUrl, String apiKey, String operation)
-            throws IOException {
-        client.setAccept("application/json");
-        final var response = client.connect();
-        if (response.getResponseCode() == HTTP_UNAUTHORIZED) {
-            AuthenticationManager.handleUnauthorized(baseUrl, apiKey);
-            throw new UnauthorizedException("MapRoulette rejected the API key");
-        }
-        if (response.getResponseCode() != HTTP_OK) {
-            throw new IOException("MapRoulette " + operation + " request failed with HTTP "
-                    + response.getResponseCode());
-        }
-        return response;
     }
 
     private static void validateUser(long userId, Optional<LeaderboardEntry> entry) throws IOException {

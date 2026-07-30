@@ -36,22 +36,21 @@ public final class ExceptionDialogUtil {
      * @param exception The exception to explain to the user
      */
     public static void explainException(Exception exception) {
-        if (exception instanceof UnauthorizedException) {
-            AuthenticationManager.clearCurrentCredential(getBaseUrl());
+        if (isUnauthorized(exception)) {
             final var message = UserIdentityManager.getInstance().isAnonymous()
                     ? tr("Please log in to OpenStreetMap in JOSM")
                     : tr("Please log in to the MapRoulette instance at least once: {0}\n NOTE: you may need to reset your MapRoulette API key",
                             getBaseUrl());
             GuiHelper.runInEDT(() -> {
                 ConditionalOptionPaneUtil.showMessageDialog("maprouletteflow.user.not.logged.in",
-                        MainApplication.getMainFrame(), message, message, JOptionPane.ERROR_MESSAGE);
+                        MainApplication.getMainFrame(), message, tr("MapRoulette authentication required"),
+                        JOptionPane.ERROR_MESSAGE);
                 if (UserIdentityManager.getInstance().isAnonymous()) {
                     final var p = new PreferenceDialog(MainApplication.getMainFrame());
                     SwingUtilities.invokeLater(() -> p.selectPreferencesTabByClass(ServerAccessPreference.class));
                     p.setVisible(true);
                 }
             });
-            showErrorDialog(message, tr("Unauthorized"), null);
         } else if (exception instanceof SocketException socketException) {
             final var message = tr("<html>Failed to open a connection to the remote server<br>" + "''{0}''.<br>"
                     + "Please check your internet connection.", socketException.getMessage()) + "</html>";
@@ -64,6 +63,15 @@ public final class ExceptionDialogUtil {
         } else {
             org.openstreetmap.josm.gui.ExceptionDialogUtil.explainException(exception);
         }
+    }
+
+    static boolean isUnauthorized(Throwable exception) {
+        for (var current = exception; current != null; current = current.getCause()) {
+            if (current instanceof UnauthorizedException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

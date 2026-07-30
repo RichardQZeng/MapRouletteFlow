@@ -2,7 +2,6 @@
 package io.github.richardqzeng.josm.maprouletteflow.api;
 
 import static java.net.HttpURLConnection.HTTP_OK;
-import static java.net.HttpURLConnection.HTTP_UNAUTHORIZED;
 
 import java.io.IOException;
 
@@ -34,16 +33,8 @@ public final class CurrentUserAPI {
         }
         final var client = HttpClientUtils.getWithApiKey(AuthenticationManager.normalizeBaseUrl(baseUrl)
                 + "/user/whoami", apiKey.strip());
-        client.setAccept("application/json");
         try {
-            final var response = client.connect();
-            if (response.getResponseCode() == HTTP_UNAUTHORIZED) {
-                AuthenticationManager.handleUnauthorized(baseUrl, apiKey.strip());
-                throw new UnauthorizedException("MapRoulette rejected the API key");
-            }
-            if (response.getResponseCode() != HTTP_OK) {
-                throw new IOException("MapRoulette account validation failed with HTTP " + response.getResponseCode());
-            }
+            final var response = HttpClientUtils.connectExpecting(client, baseUrl, HTTP_OK, "account validation");
             try (var inputStream = response.getContent()) {
                 return AuthenticatedUserParser.parse(inputStream);
             }

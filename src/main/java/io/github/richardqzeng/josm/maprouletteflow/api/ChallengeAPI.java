@@ -6,7 +6,9 @@ import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUti
 import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalInteger;
 import static io.github.richardqzeng.josm.maprouletteflow.api.parsers.ParsingUtils.optionalObject;
 import static io.github.richardqzeng.josm.maprouletteflow.config.MapRouletteConfig.getBaseUrl;
+import static io.github.richardqzeng.josm.maprouletteflow.util.HttpClientUtils.connectExpecting;
 import static io.github.richardqzeng.josm.maprouletteflow.util.HttpClientUtils.get;
+import static java.net.HttpURLConnection.HTTP_OK;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,9 +89,11 @@ public final class ChallengeAPI {
         if (proximity > 0) {
             query.put("proximity", String.valueOf(proximity));
         }
-        final var client = get(getBaseUrl() + PATH + "/" + challengeId + path, query);
+        final var baseUrl = getBaseUrl();
+        final var client = get(baseUrl + PATH + "/" + challengeId + path, query);
         try {
-            try (var inputStream = client.connect().getContent()) {
+            final var response = connectExpecting(client, baseUrl, HTTP_OK, "challenge task request");
+            try (var inputStream = response.getContent()) {
                 return (Task[]) TaskParser.parseTask(inputStream);
             }
         } finally {
@@ -105,9 +109,11 @@ public final class ChallengeAPI {
      * @throws IOException if there was a problem communicating with the server
      */
     public static Challenge challenge(long challengeId) throws IOException {
-        final var client = get(getBaseUrl() + PATH + "/" + challengeId, null);
+        final var baseUrl = getBaseUrl();
+        final var client = get(baseUrl + PATH + "/" + challengeId, null);
         try {
-            try (var inputstream = client.connect().getContent()) {
+            final var response = connectExpecting(client, baseUrl, HTTP_OK, "challenge request");
+            try (var inputstream = response.getContent()) {
                 return parseChallenge(inputstream);
             }
         } catch (RuntimeException exception) {

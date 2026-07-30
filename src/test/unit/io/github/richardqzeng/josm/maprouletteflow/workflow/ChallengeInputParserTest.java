@@ -22,9 +22,13 @@ class ChallengeInputParserTest {
     void extractsTaskIdsFromSupportedTaskUrls() {
         final var selection = ChallengeInputParser
                 .parseSelection("https://www.maproulette.org/challenge/789/task/12?foo=bar#map").orElseThrow();
+        final var reportedSelection = ChallengeInputParser
+                .parseSelection("https://maproulette.org/challenge/50561/task/266672848").orElseThrow();
 
         assertEquals(789, selection.challengeId());
         assertEquals(12, selection.taskId());
+        assertEquals(50561, reportedSelection.challengeId());
+        assertEquals(266672848, reportedSelection.taskId());
         assertEquals(42, ChallengeInputParser.parseTaskId(" 42 ").orElseThrow());
     }
 
